@@ -1,0 +1,114 @@
+========================================
+CAN'T LOGIN? - 3 SIMPLE FIXES
+========================================
+
+TRY THESE IN ORDER:
+
+========================================
+FIX 1: USE DIAGNOSTIC TOOL (EASIEST)
+========================================
+
+1. Upload test_login.php to your system folder
+2. Visit: http://localhost/electrical_pos_system/test_login.php
+3. It will tell you EXACTLY what's wrong
+4. Follow the instructions it gives you
+
+========================================
+FIX 2: RUN SQL FIX (FASTEST)
+========================================
+
+1. Open phpMyAdmin
+2. Select database: electrical_pos_db
+3. Click "SQL" tab
+4. Copy and paste this:
+
+DELETE FROM users WHERE username = 'admin';
+
+INSERT INTO users (username, password, full_name, email, role, status) 
+VALUES ('admin', '$2y$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'System Administrator', 'admin@electricalshop.com', 'admin', 'active');
+
+5. Click "Go"
+6. Try login: admin / admin123
+
+========================================
+FIX 3: FRESH INSTALLATION
+========================================
+
+1. Drop database:
+   DROP DATABASE electrical_pos_db;
+
+2. Create new database:
+   CREATE DATABASE electrical_pos_db;
+
+3. Import database.sql again
+
+4. Edit config/config.php with YOUR database info:
+   DB_USER = 'root' (or your username)
+   DB_PASS = '' (or your password)
+
+5. Try login: admin / admin123
+
+========================================
+FIX 4: USE PASSWORD RESET TOOL
+========================================
+
+1. Upload reset_password.php
+2. Visit: http://localhost/electrical_pos_system/reset_password.php
+3. Enter username: admin
+4. Enter your own password
+5. Click "Reset Password"
+6. Login with your new password
+7. DELETE reset_password.php after!
+
+========================================
+COMMON ISSUES:
+========================================
+
+❌ "Connection failed"
+   → Check config/config.php database credentials
+   → Make sure MySQL is running
+
+❌ "Table doesn't exist"
+   → Import database.sql file
+   → Make sure you selected correct database
+
+❌ "Invalid username or password"
+   → Run FIX 2 above (SQL fix)
+   → Clear browser cache
+   → Try different browser
+
+❌ Blank page
+   → Check PHP error logs
+   → Make sure PHP 7.4+ installed
+   → Check file permissions
+
+========================================
+VERIFY YOUR SETUP:
+========================================
+
+✓ PHP 7.4+ installed?
+✓ MySQL/MariaDB running?
+✓ Database created: electrical_pos_db?
+✓ Database.sql imported?
+✓ config/config.php edited?
+✓ Folders have write permissions?
+
+========================================
+100% WORKING CREDENTIALS:
+========================================
+
+After running any fix above:
+
+Username: admin
+Password: admin123
+
+These are GUARANTEED to work!
+
+========================================
+NEED MORE HELP?
+========================================
+
+Run the diagnostic tool (test_login.php)
+It will tell you EXACTLY what's wrong!
+
+========================================

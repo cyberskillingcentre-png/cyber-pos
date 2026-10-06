@@ -1,0 +1,63 @@
+RewriteEngine On
+
+
+# -------------------------------
+# ADMIN PAGES
+# -------------------------------
+
+# Core
+
+RewriteRule ^Dashboard?$ dashboard.php 
+RewriteRule ^Point_Of_Sale?$ pos.php 
+
+RewriteRule ^Client_Orders?$ Client_Orders.php 
+RewriteRule ^Client_Management?$ Client_Management.php 
+RewriteRule ^View_Order?$ View_Order.php
+RewriteRule ^Print_Invoice?$ Print_Invoice.php
+RewriteRule ^Confirm_Order?$ Confirm_Order.php
+#RewriteRule ^Client_Orders?$ Client_Orders.php
+#RewriteRule ^Client_Orders?$ Client_Orders.php
+
+RewriteRule ^Expiring_Products?$ expiring-products.php 
+RewriteRule ^My_Sales?$ sales.php
+RewriteRule ^View_Sales?$ view-sale.php
+
+
+
+
+# Inventory
+RewriteRule ^Products?$ products.php 
+RewriteRule ^Categories?$ categories.php 
+RewriteRule ^Stock_Levels?$ inventory.php 
+RewriteRule ^Stock_Purchases?$ purchases.php 
+RewriteRule ^Expiring_Stock?$ expiring-products.php 
+
+# Sales
+RewriteRule ^Sales_Records?$ sales.php 
+RewriteRule ^Sales_Returns?$ returns.php 
+RewriteRule ^Update_Status?$ Update_Status.php
+
+# Management
+RewriteRule ^Customers?$ customers.php 
+RewriteRule ^Suppliers?$ suppliers.php 
+RewriteRule ^Branches?$ stores.php 
+RewriteRule ^Users?$ users.php
+RewriteRule ^Credit_Invoice?$ credit-invoice.php 
+RewriteRule ^Receipt?$ receipt.php 
+
+
+
+# Reports
+RewriteRule ^Sales_Report?$ reports.php 
+RewriteRule ^Inventory_Report?$ inventory-reports.php 
+RewriteRule ^Expense_Report?$ expenses.php 
+
+# Settings
+RewriteRule ^System_Settings?$ settings.php 
+RewriteRule ^My_Profile?$ profile.php 
+RewriteRule ^Audit_Log?$ activity-logs.php 
+
+
+RewriteRule ^Employee_Dashboard?$ dashboard.php 
+RewriteRule ^Admin_Dashboard?$ dashboard.php 
+RewriteRule ^Client_Dashboard?$ dashboard.php 

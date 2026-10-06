@@ -1,0 +1,19 @@
+RewriteEngine On
+
+
+# -------------------------------
+# EMPLOYEE PAGES
+# -------------------------------
+
+# Core
+RewriteRule ^Employee_Dashboard?$ dashboard.php 
+RewriteRule ^Admin_Dashboard?$ dashboard.php 
+RewriteRule ^Client_Dashboard?$ dashboard.php 
+RewriteRule ^Dashboard?$ dashboard.php 
+RewriteRule ^Point_Of_Sale?$ pos.php 
+RewriteRule ^My_Sales?$ my-sales.php
+
+RewriteRule ^Logout?$ ../logout.php
+RewriteRule ^Receipt?$ print-receipt.php
+RewriteRule ^View_Sale?$ view-sale.php
+RewriteRule ^Credit_Invoice?$ credit-invoice.php

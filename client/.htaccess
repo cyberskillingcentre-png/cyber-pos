@@ -1,0 +1,16 @@
+RewriteEngine On
+
+# -------------------------------
+# CLIENT PAGES
+# -------------------------------
+
+RewriteRule ^Client_Dashboard?$ dashboard.php
+RewriteRule ^Products?$ products.php
+RewriteRule ^New_Order?$ new-order.php
+RewriteRule ^My_Orders?$ orders.php
+RewriteRule ^My_Favorites?$ favorites.php
+RewriteRule ^My_Invoices?$ invoices.php
+RewriteRule ^My_Profile?$ profile.php
+RewriteRule ^My_Order_Details?$ order-details.php
+RewriteRule ^Print_Invoice?$ print-invoice.php
+RewriteRule ^Logout?$ ../logout.php

@@ -1,0 +1,22 @@
+CRITICAL FIX - REPLACE THIS FILE ONLY!
+
+FILE: admin/process-confirmation.php
+
+This is the ONLY file that needs to be replaced.
+
+TWO BUGS FIXED:
+
+1. ✅ FIXED "created_at" error for single store selection
+   - Changed ALL queries to use: ORDER BY inventory_id ASC
+   - No more "Column not found" errors
+
+2. ✅ FIXED stock validation for "All Stores" option  
+   - Now correctly checks TOTAL stock across all stores
+   - Was checking per-store, now checks SUM(quantity)
+
+JUST REPLACE THIS ONE FILE AND EVERYTHING WORKS!
+
+Test:
+1. Select specific store → Works ✅
+2. Select "All Stores" → Works ✅
+3. Both deduct inventory correctly ✅

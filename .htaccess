@@ -1,0 +1,20 @@
+RewriteEngine On
+
+
+# -------------------------------
+# ROOT PAGES
+# -------------------------------
+
+# Core
+
+RewriteRule ^Login?$ org-login.php 
+RewriteRule ^Employee_Dashboard?$ dashboard.php 
+RewriteRule ^Admin_Dashboard?$ dashboard.php 
+RewriteRule ^Client_Dashboard?$ dashboard.php 
+
+#RewriteRule ^Logout?$ ../logout.php
+
+RewriteRule ^Register_Your_Company?$ register-organization.php
+RewriteRule ^Welcome_to_CYBER_POS?$ index.php 
+RewriteRule ^Registered_Successfully?$ registration-success.php
+ 

@@ -1,0 +1,88 @@
+========================================
+ELECTRICAL POS SYSTEM - INSTALLATION GUIDE
+========================================
+
+QUICK INSTALLATION STEPS:
+
+1. UNZIP THE FILE
+   - Extract electrical_pos_system.zip to your web server directory
+   - Example: /var/www/html/ or htdocs/
+
+2. CREATE DATABASE
+   - Open phpMyAdmin or MySQL command line
+   - Create new database: electrical_pos_db
+   - Import database.sql file
+
+3. CONFIGURE DATABASE CONNECTION
+   - Open: config/config.php
+   - Edit these lines:
+     
+     define('DB_HOST', 'localhost');
+     define('DB_USER', 'root');              // Your MySQL username
+     define('DB_PASS', '');                  // Your MySQL password
+     define('DB_NAME', 'electrical_pos_db'); // Database name
+
+4. SET FOLDER PERMISSIONS
+   - Make uploads folder writable:
+     uploads/
+     uploads/products/
+     uploads/receipts/
+
+5. ACCESS THE SYSTEM
+   - Open browser: http://localhost/electrical_pos_system/
+   - Login with:
+     Username: admin
+     Password: admin123
+
+6. IMPORTANT - FIRST STEPS:
+   - Change admin password
+   - Add your company information in Settings
+   - Add your store/branch
+   - Add categories
+   - Add suppliers
+   - Start adding products
+
+========================================
+SYSTEM REQUIREMENTS:
+========================================
+
+- PHP 7.4 or higher
+- MySQL 5.7+ or MariaDB 10.3+
+- Apache or Nginx web server
+- 50MB+ disk space
+- Modern web browser
+
+========================================
+DEFAULT LOGIN CREDENTIALS:
+========================================
+
+Username: admin
+Password: admin123
+
+⚠️ CHANGE THIS PASSWORD IMMEDIATELY AFTER FIRST LOGIN!
+
+========================================
+FEATURES OVERVIEW:
+========================================
+
+✓ Point of Sale
+✓ Product Management
+✓ Inventory Tracking
+✓ Customer Management
+✓ Sales Reports
+✓ Barcode Support
+✓ Multi-Store Support
+✓ Expiry Date Tracking
+✓ Receipt Printing
+✓ And much more...
+
+========================================
+SUPPORT:
+========================================
+
+For issues or questions:
+- Check the README.md file
+- Review system logs
+- Check activity_logs table in database
+
+========================================
