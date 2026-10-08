@@ -87,6 +87,145 @@ function sanitize_input($data) {
     return $data;
 }
 
+/**
+ * ============================================
+ * IDOR PROTECTION HELPERS
+ * ============================================
+ */
+
+/**
+ * Fetch a sale with ownership check.
+ * Admin can see all. Employee can only see their own.
+ * 
+ * @param PDO $conn
+ * @param int $sale_id
+ * @return array|null
+ */
+function get_sale_with_access_check($conn, $sale_id) {
+    $user_id = $_SESSION['user_id'] ?? 0;
+    $is_admin = (($_SESSION['role'] ?? '') === 'admin');
+    
+    if ($is_admin) {
+        // Admin sees all
+        $stmt = $conn->prepare("
+            SELECT s.*, 
+                   st.store_name, 
+                   st.phone as store_phone,
+                   st.location as store_location,
+                   c.customer_name, 
+                   u.full_name as served_by_name
+            FROM sales s
+            LEFT JOIN stores st ON s.store_id = st.store_id
+            LEFT JOIN customers c ON s.customer_id = c.customer_id
+            LEFT JOIN users u ON s.served_by = u.user_id
+            WHERE s.sale_id = ?
+        ");
+        $stmt->execute([$sale_id]);
+    } else {
+        // Employee — only their own
+        $stmt = $conn->prepare("
+            SELECT s.*, 
+                   st.store_name, 
+                   st.phone as store_phone,
+                   st.location as store_location,
+                   c.customer_name, 
+                   u.full_name as served_by_name
+            FROM sales s
+            LEFT JOIN stores st ON s.store_id = st.store_id
+            LEFT JOIN customers c ON s.customer_id = c.customer_id
+            LEFT JOIN users u ON s.served_by = u.user_id
+            WHERE s.sale_id = ? 
+            AND s.served_by = ?
+        ");
+        $stmt->execute([$sale_id, $user_id]);
+    }
+    
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+/**
+ * Fetch a client order with ownership check.
+ * Admin can see all. Client can only see their own.
+ * 
+ * @param PDO $conn
+ * @param int $order_id
+ * @return array|null
+ */
+function get_order_with_access_check($conn, $order_id) {
+    $user_id = $_SESSION['user_id'] ?? 0;
+    $is_admin = (($_SESSION['role'] ?? '') === 'admin');
+    
+    if ($is_admin) {
+        $stmt = $conn->prepare("
+            SELECT co.*, 
+                   s.store_name,
+                   s.phone as store_phone,
+                   s.location as store_location,
+                   u.full_name as client_name,
+                   u.email as client_email,
+                   u.phone as client_phone,
+                   cp.company_name,
+                   cp.billing_address
+            FROM client_orders co
+            LEFT JOIN stores s ON co.store_id = s.store_id
+            LEFT JOIN users u ON co.client_id = u.user_id
+            LEFT JOIN client_profiles cp ON u.user_id = cp.user_id
+            WHERE co.order_id = ?
+        ");
+        $stmt->execute([$order_id]);
+    } else {
+        $stmt = $conn->prepare("
+            SELECT co.*, 
+                   s.store_name,
+                   s.phone as store_phone,
+                   s.location as store_location,
+                   u.full_name as client_name,
+                   u.email as client_email,
+                   u.phone as client_phone,
+                   cp.company_name,
+                   cp.billing_address
+            FROM client_orders co
+            LEFT JOIN stores s ON co.store_id = s.store_id
+            LEFT JOIN users u ON co.client_id = u.user_id
+            LEFT JOIN client_profiles cp ON u.user_id = cp.user_id
+            WHERE co.order_id = ? 
+            AND co.client_id = ?
+        ");
+        $stmt->execute([$order_id, $user_id]);
+    }
+    
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+/**
+ * Check if current user has access to a sale.
+ * Returns true/false without fetching.
+ */
+function user_can_access_sale($conn, $sale_id) {
+    $user_id = $_SESSION['user_id'] ?? 0;
+    $is_admin = (($_SESSION['role'] ?? '') === 'admin');
+    
+    if ($is_admin) return true;
+    
+    $stmt = $conn->prepare("SELECT 1 FROM sales WHERE sale_id = ? AND served_by = ?");
+    $stmt->execute([$sale_id, $user_id]);
+    return (bool) $stmt->fetch();
+}
+
+/**
+ * Check if current user has access to a client order.
+ */
+function user_can_access_order($conn, $order_id) {
+    $user_id = $_SESSION['user_id'] ?? 0;
+    $is_admin = (($_SESSION['role'] ?? '') === 'admin');
+    
+    if ($is_admin) return true;
+    
+    $stmt = $conn->prepare("SELECT 1 FROM client_orders WHERE order_id = ? AND client_id = ?");
+    $stmt->execute([$order_id, $user_id]);
+    return (bool) $stmt->fetch();
+}
+
 function generate_csrf_token() {
     if (empty($_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));

@@ -2,10 +2,12 @@
 require_once '../config/config.php';
 require_login();
 
-if (is_admin()) { 
-    header('Location: ../admin/dashboard.php'); 
-    exit(); 
+// Only employees can access this
+if (is_admin()) {
+    header('Location: ../admin/view-sale.php?id=' . intval($_GET['id']));
+    exit;
 }
+
 
 $page_title = "My Sales";
 

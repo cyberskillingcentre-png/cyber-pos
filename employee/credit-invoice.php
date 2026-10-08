@@ -1,74 +1,31 @@
 <?php
 require_once '../config/config.php';
-require_admin();
+require_login();
 
-$sale_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+$sale_id = intval($_GET['id'] ?? 0);
 
-if (!$sale_id) {
+if ($sale_id <= 0) {
     set_alert('danger', 'Invalid sale ID');
-    header('Location: sales.php');
-    exit();
+    header('Location: my-sales.php');
+    exit;
 }
 
-// Fetch sale details
-$stmt = $conn->prepare("
-    SELECT 
-        s.*,
-        st.store_name,
-        c.customer_name,
-        c.customer_code,
-        u.full_name as served_by_name
-    FROM sales s
-    LEFT JOIN stores st ON s.store_id = st.store_id
-    LEFT JOIN customers c ON s.customer_id = c.customer_id
-    LEFT JOIN users u ON s.served_by = u.user_id
-    WHERE s.sale_id = ?
-");
-$stmt->execute([$sale_id]);
-$sale = $stmt->fetch();
+// ✅ IDOR-protected fetch
+$sale = get_sale_with_access_check($conn, $sale_id);
 
 if (!$sale) {
     set_alert('danger', 'Sale not found');
-    header('Location: sales.php');
-    exit();
+    header('Location: my-sales.php');
+    exit;
 }
 
-// Get store details separately
-$stmt = $conn->prepare("SELECT * FROM stores WHERE store_id = ?");
-$stmt->execute([$sale['store_id']]);
-$store = $stmt->fetch();
-
-// Get customer details separately
-$customer = null;
-if ($sale['customer_id']) {
-    $stmt = $conn->prepare("SELECT * FROM customers WHERE customer_id = ?");
-    $stmt->execute([$sale['customer_id']]);
-    $customer = $stmt->fetch();
-}
-
-// Check if customer exists for credit sales
-if ($sale['sale_type'] == 'credit' && !$customer) {
-    set_alert('danger', 'Customer information required for credit sales');
+// Ensure it's a credit sale
+if (($sale['sale_type'] ?? '') !== 'credit') {
+    set_alert('warning', 'Not a credit sale');
     header('Location: view-sale.php?id=' . $sale_id);
-    exit();
+    exit;
 }
 
-// Fetch sale items
-$stmt = $conn->prepare("
-    SELECT 
-        si.*,
-        p.product_name,
-        p.product_code
-    FROM sale_items si
-    JOIN products p ON si.product_id = p.product_id
-    WHERE si.sale_id = ?
-    ORDER BY si.sale_item_id
-");
-$stmt->execute([$sale_id]);
-$sale_items = $stmt->fetchAll();
-
-// Calculate due date (30 days from sale date)
-$due_date = date('Y-m-d', strtotime($sale['sale_date'] . ' +30 days'));
 ?>
 <!DOCTYPE html>
 <html lang="en">

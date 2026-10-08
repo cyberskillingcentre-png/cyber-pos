@@ -1,51 +1,20 @@
 <?php
 require_once '../config/config.php';
 require_login();
-$page_title = "Print Receipt";
-$sale_id = intval($_GET['id']);
 
-// Get organization details from SESSION (set during login)
-$organization = [
-    'org_name' => $_SESSION['org_name'] ?? 'POS System',
-    'address' => $_SESSION['org_address'] ?? '',
-    'phone' => $_SESSION['org_phone'] ?? '',
-    'email' => $_SESSION['org_email'] ?? '',
-    'tin' => $_SESSION['org_tin'] ?? '',
-    'website' => $_SESSION['org_website'] ?? '',
-    'logo_path' => $_SESSION['org_logo'] ?? ''
-];
+$sale_id = intval($_GET['id'] ?? 0);
 
-// Get sale details
-$stmt = $conn->prepare("
-    SELECT s.*, 
-           st.store_name, 
-           c.customer_name, 
-           u.full_name as served_by_name 
-    FROM sales s 
-    LEFT JOIN stores st ON s.store_id = st.store_id 
-    LEFT JOIN customers c ON s.customer_id = c.customer_id 
-    LEFT JOIN users u ON s.served_by = u.user_id 
-    WHERE s.sale_id = ?
-");
-$stmt->execute([$sale_id]);
-$sale = $stmt->fetch();
-
-if (!$sale) {
-    die('Sale not found');
+if ($sale_id <= 0) {
+    die('Invalid sale ID');
 }
 
-// Get sale items
-$stmt = $conn->prepare("
-    SELECT si.*, p.product_name, p.product_code 
-    FROM sale_items si 
-    JOIN products p ON si.product_id = p.product_id 
-    WHERE si.sale_id = ?
-");
-$stmt->execute([$sale_id]);
-$items = $stmt->fetchAll();
+// ✅ IDOR-protected fetch
+$sale = get_sale_with_access_check($conn, $sale_id);
 
-// Calculate change
-$change = $sale['amount_paid'] - $sale['total_amount'];
+if (!$sale) {
+    die('Receipt not found');
+}
+
 ?>
 <!DOCTYPE html>
 <html>

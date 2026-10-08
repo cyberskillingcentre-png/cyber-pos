@@ -3,7 +3,7 @@ require_once '../config/config.php';
 require_once 'config/client_auth.php';
 require_client();
 
-$order_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+$order_id = intval($_GET['id'] ?? 0);
 
 if ($order_id <= 0) {
     set_alert('danger', 'Invalid order ID');
@@ -11,28 +11,37 @@ if ($order_id <= 0) {
     exit;
 }
 
+// ============================================
+// ✅ CRITICAL: Use single query with ownership check
+// Prevents: cancelling other clients' orders
+// ============================================
 try {
-    // Verify order belongs to this client AND is still pending
+    // Verify the order belongs to this client AND is pending
     $stmt = $conn->prepare("
         SELECT order_id, order_number, order_status
         FROM client_orders
-        WHERE order_id = ? AND client_id = ? AND order_status = 'pending'
+        WHERE order_id = ? 
+        AND client_id = ? 
+        AND order_status = 'pending'
     ");
     $stmt->execute([$order_id, $_SESSION['user_id']]);
     $order = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$order) {
-        set_alert('danger', 'Order not found or cannot be cancelled');
+        // Don't reveal whether it exists, belongs to someone else, or has wrong status
+        set_alert('danger', 'Order cannot be cancelled');
         header('Location: orders.php');
         exit;
     }
     
-    // Cancel the order
+    // Cancel — the WHERE clause ALSO includes client_id as defense-in-depth
     $stmt = $conn->prepare("
         UPDATE client_orders 
         SET order_status = 'cancelled',
             updated_at = CURRENT_TIMESTAMP
-        WHERE order_id = ? AND client_id = ? AND order_status = 'pending'
+        WHERE order_id = ? 
+        AND client_id = ? 
+        AND order_status = 'pending'
     ");
     $stmt->execute([$order_id, $_SESSION['user_id']]);
     
@@ -41,7 +50,7 @@ try {
         if (function_exists('log_activity')) {
             log_activity(
                 $_SESSION['user_id'],
-                'CLIENT_ORDER_CANCELLED',
+                'ORDER_CANCELLED',
                 "Cancelled order: {$order['order_number']}",
                 $conn
             );

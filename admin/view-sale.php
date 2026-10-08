@@ -50,18 +50,24 @@ $stmt = $conn->prepare("
 $stmt->execute([$sale_id]);
 $sale_items = $stmt->fetchAll();
 
-// Fetch credit payments for this sale
-$stmt = $conn->prepare("
-    SELECT 
-        cp.*,
-        u.full_name as recorded_by_name
-    FROM customer_credit_payments cp
-    LEFT JOIN users u ON cp.recorded_by = u.user_id
-    WHERE cp.sale_id = ?
-    ORDER BY cp.payment_date DESC, cp.created_at DESC
-");
-$stmt->execute([$sale_id]);
-$credit_payments = $stmt->fetchAll();
+// Fetch credit payments for this sale (defensive)
+$credit_payments = [];
+try {
+    $stmt = $conn->prepare("
+        SELECT 
+            cp.*,
+            u.full_name as recorded_by_name
+        FROM customer_credit_payments cp
+        LEFT JOIN users u ON cp.recorded_by = u.user_id
+        WHERE cp.sale_id = ?
+        ORDER BY cp.payment_date DESC, cp.created_at DESC
+    ");
+    $stmt->execute([$sale_id]);
+    $credit_payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch(PDOException $e) {
+    // Table might not exist in this org's DB — that's fine
+    $credit_payments = [];
+}
 
 // Calculate total payments made
 $total_paid = 0;

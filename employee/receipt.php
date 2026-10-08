@@ -2,44 +2,32 @@
 require_once '../config/config.php';
 require_login();
 
-$page_title = "Receipt";
-$sale_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+$sale_id = intval($_GET['id'] ?? 0);
 
 if ($sale_id <= 0) {
     die('Invalid sale ID');
 }
 
-// ============================================
-// FETCH SALE
-// ============================================
-$sale = null;
-try {
-    $stmt = $conn->prepare("
-        SELECT s.*, 
-               st.store_name, 
-               st.phone as store_phone,
-               st.location as store_location,
-               c.customer_name,
-               u.full_name as served_by_name
-        FROM sales s
-        LEFT JOIN stores st ON s.store_id = st.store_id
-        LEFT JOIN customers c ON s.customer_id = c.customer_id
-        LEFT JOIN users u ON s.served_by = u.user_id
-        WHERE s.sale_id = ?
-    ");
-    $stmt->execute([$sale_id]);
-    $sale = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    if (!$sale) {
-        die('Sale not found');
-    }
-} catch(PDOException $e) {
-    die('Error loading sale: ' . $e->getMessage());
+// ✅ IDOR-protected fetch
+$sale = get_sale_with_access_check($conn, $sale_id);
+
+if (!$sale) {
+    // Don't reveal whether it exists
+    die('Receipt not found or you do not have permission to view it');
 }
 
-// ============================================
-// FETCH SETTINGS (key/value style)
-// ============================================
+// Fetch sale items
+$stmt = $conn->prepare("
+    SELECT si.*, p.product_name, p.product_code
+    FROM sale_items si
+    JOIN products p ON si.product_id = p.product_id
+    WHERE si.sale_id = ?
+    ORDER BY si.sale_item_id
+");
+$stmt->execute([$sale_id]);
+$items = $stmt->fetchAll();
+
+// Fetch settings (key/value style)
 $settings = [];
 try {
     $stmt = $conn->query("SELECT setting_key, setting_value FROM system_settings");
@@ -57,27 +45,9 @@ $company_email   = $settings['company_email'] ?? '';
 $company_address = $settings['company_address'] ?? ($sale['store_location'] ?? '');
 $receipt_footer  = $settings['receipt_footer'] ?? 'Thank you for your business!';
 
-// ============================================
-// FETCH SALE ITEMS
-// ============================================
-$items = [];
-try {
-    $stmt = $conn->prepare("
-        SELECT si.*, p.product_name, p.product_code
-        FROM sale_items si
-        JOIN products p ON si.product_id = p.product_id
-        WHERE si.sale_id = ?
-        ORDER BY si.sale_item_id ASC
-    ");
-    $stmt->execute([$sale_id]);
-    $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
-} catch(PDOException $e) {
-    $items = [];
-}
-
-// Calculate change
 $change = ($sale['amount_paid'] ?? 0) - ($sale['total_amount'] ?? 0);
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>

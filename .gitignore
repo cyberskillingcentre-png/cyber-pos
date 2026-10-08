@@ -1,0 +1,100 @@
+# ============================================
+# CYBERPLAZA POS - GITIGNORE
+# ============================================
+
+# --------------------------------------------
+# Environment & Config (SENSITIVE!)
+# --------------------------------------------
+.env
+.env.local
+.env.*.local
+config/database.local.php
+master_config.local.php
+
+# --------------------------------------------
+# Uploads (user-generated content)
+# --------------------------------------------
+uploads/
+!uploads/.gitkeep
+
+# --------------------------------------------
+# Logs & Cache
+# --------------------------------------------
+*.log
+logs/
+*.cache
+.cache/
+tmp/
+temp/
+
+# --------------------------------------------
+# IDE & Editor
+# --------------------------------------------
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# --------------------------------------------
+# OS Files
+# --------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --------------------------------------------
+# Dependencies (if you ever add Composer/NPM)
+# --------------------------------------------
+/vendor/
+/node_modules/
+composer.lock
+package-lock.json
+
+# --------------------------------------------
+# Backup Files
+# --------------------------------------------
+*.backup
+*.bak
+*.old
+*.orig
+*~
+*_old.php
+*.sql.gz
+*.sql.zip
+master_config.local.php
+
+# --------------------------------------------
+# Sensitive SQL Files
+# --------------------------------------------
+*.sql
+
+# Keep the schema dump only if it has no data
+!database/schema.sql
+
+# --------------------------------------------
+# Test Files & Debug Scripts
+# --------------------------------------------
+test.php
+diagnose_pos.php
+manual_test.php
+check_session.php
+check-*.php
+debug-*.php
+
+# --------------------------------------------
+# Build Artifacts
+# --------------------------------------------
+dist/
+build/
+
+# --------------------------------------------
+# TCPDF & Other Libs (they're large)
+# --------------------------------------------
+includes/tcpdf/
+includes/fpdf/
+
+# Or keep TCPDF if you want it committed:
+# !includes/tcpdf/

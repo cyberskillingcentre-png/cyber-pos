@@ -6,9 +6,9 @@ require_client();
 $page_title = "Order Details";
 
 // ============================================
-// GET ORDER ID
+// VALIDATE ORDER ID
 // ============================================
-$order_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+$order_id = intval($_GET['id'] ?? 0);
 
 if ($order_id <= 0) {
     set_alert('danger', 'Invalid order ID');
@@ -17,29 +17,12 @@ if ($order_id <= 0) {
 }
 
 // ============================================
-// FETCH ORDER
+// FETCH ORDER — WITH IDOR PROTECTION
 // ============================================
-$order = null;
-try {
-    $stmt = $conn->prepare("
-        SELECT co.*, 
-               s.store_name,
-               s.phone as store_phone,
-               s.location as store_location
-        FROM client_orders co
-        LEFT JOIN stores s ON co.store_id = s.store_id
-        WHERE co.order_id = ? AND co.client_id = ?
-    ");
-    $stmt->execute([$order_id, $_SESSION['user_id']]);
-    $order = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    if (!$order) {
-        set_alert('danger', 'Order not found or you do not have permission to view it');
-        header('Location: orders.php');
-        exit;
-    }
-} catch(PDOException $e) {
-    set_alert('danger', 'Error loading order: ' . $e->getMessage());
+$order = get_order_with_access_check($conn, $order_id);
+
+if (!$order) {
+    set_alert('danger', 'Order not found or you do not have access to view it');
     header('Location: orders.php');
     exit;
 }
@@ -50,7 +33,10 @@ try {
 $items = [];
 try {
     $stmt = $conn->prepare("
-        SELECT coi.*, p.product_code, p.product_image
+        SELECT 
+            coi.*,
+            p.product_code,
+            p.product_image
         FROM client_order_items coi
         LEFT JOIN products p ON coi.product_id = p.product_id
         WHERE coi.order_id = ?
@@ -63,15 +49,17 @@ try {
 }
 
 // ============================================
-// SAFE VALUES
+// EXTRACT VALUES WITH SAFE DEFAULTS
 // ============================================
 $subtotal       = floatval($order['subtotal'] ?? 0);
 $discount       = floatval($order['discount_amount'] ?? 0);
 $tax            = floatval($order['tax_amount'] ?? 0);
 $grand_total    = floatval($order['grand_total'] ?? 0);
 $amount_paid    = floatval($order['amount_paid'] ?? 0);
-$amount_due     = floatval($order['amount_due'] ?? max(0, $grand_total - $amount_paid));
+$amount_due     = floatval($order['amount_due'] ?? 0);
 $balance        = max(0, $grand_total - $amount_paid);
+
+$alert = get_alert();
 ?>
 
 <?php include '../includes/header.php'; ?>
@@ -93,7 +81,7 @@ $balance        = max(0, $grand_total - $amount_paid);
                 
                 <h5 class="mb-0">
                     <i class="fas fa-file-invoice me-2" style="color: var(--cyber-orange);"></i>
-                    Order: <?php echo htmlspecialchars($order['order_number']); ?>
+                    Order <?php echo htmlspecialchars($order['order_number']); ?>
                 </h5>
             </div>
             <div class="d-flex align-items-center gap-3">
@@ -109,17 +97,32 @@ $balance        = max(0, $grand_total - $amount_paid);
     </div>
     
     <div class="content-area">
-        <?php $alert = get_alert(); if ($alert): ?>
-            <div class="alert alert-<?php echo $alert['type']; ?> alert-dismissible fade show">
-                <i class="fas fa-<?php echo $alert['type'] == 'success' ? 'check-circle' : 'exclamation-circle'; ?> me-2"></i>
-                <?php echo $alert['message']; ?>
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
+        <?php if ($alert): ?>
+        <div class="alert alert-<?php echo $alert['type']; ?> alert-dismissible fade show">
+            <i class="fas fa-info-circle me-2"></i>
+            <?php echo $alert['message']; ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
         <?php endif; ?>
+        
+        <!-- Order Header -->
+        <div class="order-header mb-4">
+            <div class="order-header-left">
+                <span class="order-label">Order Number</span>
+                <span class="order-number"><?php echo htmlspecialchars($order['order_number']); ?></span>
+            </div>
+            <div class="order-header-right">
+                <span class="order-date">
+                    <i class="fas fa-calendar me-1"></i>
+                    <?php echo date('M d, Y H:i', strtotime($order['order_date'])); ?>
+                </span>
+            </div>
+        </div>
         
         <div class="row g-4">
             <!-- LEFT: Order Items -->
             <div class="col-lg-8">
+                <!-- Order Items Card -->
                 <div class="card cyber-card mb-4">
                     <div class="card-header">
                         <i class="fas fa-box me-2"></i>Order Items
@@ -184,7 +187,9 @@ $balance        = max(0, $grand_total - $amount_paid);
                                         <?php endif; ?>
                                         <tr class="table-primary">
                                             <td colspan="4" class="text-end"><strong>GRAND TOTAL:</strong></td>
-                                            <td class="text-end"><strong class="fs-5">UGX <?php echo number_format($grand_total, 0); ?></strong></td>
+                                            <td class="text-end">
+                                                <strong class="fs-5">UGX <?php echo number_format($grand_total, 0); ?></strong>
+                                            </td>
                                         </tr>
                                     </tfoot>
                                 </table>
@@ -220,12 +225,13 @@ $balance        = max(0, $grand_total - $amount_paid);
             
             <!-- RIGHT: Status + Info -->
             <div class="col-lg-4">
-                <!-- Order Status -->
+                <!-- Order Status Card -->
                 <div class="card cyber-card mb-4">
                     <div class="card-header">
                         <i class="fas fa-info-circle me-2"></i>Order Status
                     </div>
                     <div class="card-body">
+                        <!-- Order Status -->
                         <div class="status-block mb-3">
                             <div class="status-label">Order Status</div>
                             <?php
@@ -245,6 +251,7 @@ $balance        = max(0, $grand_total - $amount_paid);
                             </span>
                         </div>
                         
+                        <!-- Payment Status -->
                         <div class="status-block mb-3">
                             <div class="status-label">Payment Status</div>
                             <?php
@@ -260,6 +267,7 @@ $balance        = max(0, $grand_total - $amount_paid);
                             </span>
                         </div>
                         
+                        <!-- Payment Method -->
                         <div class="status-block mb-3">
                             <div class="status-label">Payment Method</div>
                             <div class="status-value">
@@ -268,6 +276,7 @@ $balance        = max(0, $grand_total - $amount_paid);
                             </div>
                         </div>
                         
+                        <!-- Amount Summary -->
                         <div class="amount-summary">
                             <div class="d-flex justify-content-between mb-2">
                                 <span>Total:</span>
@@ -287,7 +296,7 @@ $balance        = max(0, $grand_total - $amount_paid);
                     </div>
                 </div>
                 
-                <!-- Order Details -->
+                <!-- Order Info Card -->
                 <div class="card cyber-card mb-4">
                     <div class="card-header">
                         <i class="fas fa-info-circle me-2"></i>Order Details
@@ -313,15 +322,6 @@ $balance        = max(0, $grand_total - $amount_paid);
                                 <?php echo htmlspecialchars($order['store_name'] ?? 'Not assigned'); ?>
                             </div>
                         </div>
-                        
-                        <?php if (!empty($order['store_phone'])): ?>
-                        <div class="info-item">
-                            <div class="info-label">Store Phone</div>
-                            <div class="info-value">
-                                <?php echo htmlspecialchars($order['store_phone']); ?>
-                            </div>
-                        </div>
-                        <?php endif; ?>
                     </div>
                 </div>
                 
@@ -337,17 +337,17 @@ $balance        = max(0, $grand_total - $amount_paid);
                             <i class="fas fa-print me-2"></i>Print Invoice
                         </a>
                         
-                        <a href="orders.php" class="btn btn-secondary">
-                            <i class="fas fa-arrow-left me-2"></i>Back to Orders
-                        </a>
-                        
                         <?php if (($order['order_status'] ?? '') === 'pending'): ?>
                         <a href="cancel-order.php?id=<?php echo $order_id; ?>" 
                            class="btn btn-danger"
-                           onclick="return confirm('Cancel this order?');">
+                           onclick="return confirm('Are you sure you want to cancel this order?');">
                             <i class="fas fa-times-circle me-2"></i>Cancel Order
                         </a>
                         <?php endif; ?>
+                        
+                        <a href="orders.php" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Orders
+                        </a>
                     </div>
                 </div>
             </div>
@@ -357,6 +357,52 @@ $balance        = max(0, $grand_total - $amount_paid);
 
 <!-- Page Styles -->
 <style>
+/* Order Header */
+.order-header {
+    background: linear-gradient(135deg, #1A202C, #2D3748);
+    color: #fff;
+    border-radius: 12px;
+    padding: 20px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.order-header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.order-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #ED8936;
+}
+
+.order-number {
+    font-size: 1.4rem;
+    font-weight: 800;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+}
+
+.order-header-right {
+    text-align: right;
+}
+
+.order-date {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.7);
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Cyber card */
 .cyber-card {
     background: #fff;
     border: 1px solid #E2E8F0;
@@ -377,6 +423,7 @@ $balance        = max(0, $grand_total - $amount_paid);
 
 .cyber-card .card-header i { color: #ED8936; }
 
+/* Cyber table */
 .cyber-table {
     width: 100%;
     border-collapse: collapse;
@@ -402,6 +449,8 @@ $balance        = max(0, $grand_total - $amount_paid);
     vertical-align: middle;
 }
 
+.cyber-table tbody tr:hover { background: #F7FAFC; }
+
 .cyber-table code {
     font-size: 0.8rem;
     color: #6B46C1;
@@ -410,6 +459,18 @@ $balance        = max(0, $grand_total - $amount_paid);
     border-radius: 4px;
 }
 
+.cyber-table tfoot td {
+    padding: 12px 16px;
+    border-top: 1px solid #E2E8F0;
+}
+
+.cyber-table tfoot tr.table-primary td {
+    background: linear-gradient(135deg, #6B46C1, #553C9A);
+    color: #fff;
+    padding: 16px;
+}
+
+/* Status blocks */
 .status-block {
     padding: 12px;
     background: #F7FAFC;
@@ -457,6 +518,7 @@ $balance        = max(0, $grand_total - $amount_paid);
 .payment-partial { background: rgba(237, 137, 54, 0.15); color: #C05621; }
 .payment-unpaid  { background: rgba(229, 62, 62, 0.15); color: #C53030; }
 
+/* Amount summary */
 .amount-summary {
     padding: 12px;
     background: #F7FAFC;
@@ -466,6 +528,7 @@ $balance        = max(0, $grand_total - $amount_paid);
     margin-top: 12px;
 }
 
+/* Info items */
 .info-item {
     padding: 8px 0;
     border-bottom: 1px dashed #E2E8F0;
@@ -496,6 +559,7 @@ $balance        = max(0, $grand_total - $amount_paid);
     border-radius: 4px;
 }
 
+/* Empty state */
 .empty-state {
     text-align: center;
     padding: 60px 20px;
@@ -510,6 +574,10 @@ $balance        = max(0, $grand_total - $amount_paid);
     display: block;
 }
 
+.empty-state h5 { color: #4A5568; font-weight: 700; margin-bottom: 8px; }
+.empty-state p { margin: 0; font-size: 0.9rem; }
+
+/* User badge */
 .user-badge {
     display: flex;
     align-items: center;

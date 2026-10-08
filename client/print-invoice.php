@@ -1,41 +1,31 @@
 <?php
 require_once '../config/config.php';
-require_login();
+require_once 'config/client_auth.php';
+require_client();
 
-$order_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+$order_id = intval($_GET['id'] ?? 0);
 
-// Get order details
-$stmt = $conn->prepare("
-    SELECT co.*, 
-           u.full_name as client_name, u.email, u.phone,
-           cp.company_name, cp.billing_address,
-           s.store_name
-    FROM client_orders co
-    LEFT JOIN users u ON co.client_id = u.user_id
-    LEFT JOIN client_profiles cp ON u.user_id = cp.user_id
-    LEFT JOIN stores s ON co.store_id = s.store_id
-    WHERE co.order_id = ?
-");
-$stmt->execute([$order_id]);
-$order = $stmt->fetch(PDO::FETCH_ASSOC);
+if ($order_id <= 0) {
+    die('Invalid order ID');
+}
+
+// ✅ IDOR-protected fetch
+$order = get_order_with_access_check($conn, $order_id);
 
 if (!$order) {
-    die('Order not found');
+    die('Invoice not found');
 }
 
-// SECURITY CHECK: Allow admins OR the client who owns this order
-if (!is_admin()) {
-    // If not admin, must be the client who owns this order
-    if (!isset($_SESSION['user_id']) || $order['client_id'] != $_SESSION['user_id']) {
-        header('Location: ../client/Client_Dashboard');
-        exit();
-    }
-}
-
-// Get items
-$stmt = $conn->prepare("SELECT * FROM client_order_items WHERE order_id = ?");
+// Fetch items
+$stmt = $conn->prepare("
+    SELECT coi.*, p.product_code 
+    FROM client_order_items coi
+    LEFT JOIN products p ON coi.product_id = p.product_id
+    WHERE coi.order_id = ?
+");
 $stmt->execute([$order_id]);
-$items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$items = $stmt->fetchAll();
+
 ?>
 <!DOCTYPE html>
 <html>
