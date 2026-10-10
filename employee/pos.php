@@ -2,9 +2,15 @@
 require_once '../config/config.php';
 require_login();
 
-if (is_admin()) { 
-    header('Location: ../admin/dashboard.php'); 
-    exit(); 
+// ============================================
+// AUTO-PRINT HANDLER
+// ============================================
+$auto_print_sale_id = isset($_GET['auto_print']) ? intval($_GET['auto_print']) : 0;
+$auto_print_type = $_GET['type'] ?? 'cash';
+
+if (is_admin()) {
+    header('Location: ../admin/dashboard.php');
+    exit();
 }
 
 $page_title = "Point of Sale";
@@ -22,22 +28,22 @@ try {
           UNIQUE KEY `unique_user_store` (`user_id`, `store_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
-    
+
     $check = $conn->query("SHOW COLUMNS FROM users LIKE 'default_store_id'");
     if ($check->rowCount() == 0) {
         $conn->exec("ALTER TABLE users ADD COLUMN default_store_id INT DEFAULT NULL AFTER status");
     }
-    
+
     $check = $conn->query("SHOW COLUMNS FROM sales LIKE 'sale_type'");
     if ($check->rowCount() == 0) {
         $conn->exec("ALTER TABLE sales ADD COLUMN sale_type ENUM('cash','credit') DEFAULT 'cash' AFTER payment_method");
     }
-    
+
     $check = $conn->query("SHOW COLUMNS FROM sales LIKE 'transaction_id'");
     if ($check->rowCount() == 0) {
         $conn->exec("ALTER TABLE sales ADD COLUMN transaction_id VARCHAR(100) DEFAULT NULL AFTER amount_due");
     }
-    
+
     $check = $conn->query("SHOW COLUMNS FROM sale_items LIKE 'profit'");
     if ($check->rowCount() == 0) {
         $conn->exec("ALTER TABLE sale_items ADD COLUMN profit DECIMAL(15,2) DEFAULT 0 AFTER total_price");
@@ -45,41 +51,59 @@ try {
 } catch(PDOException $e) {}
 
 // ============================================
-// FETCH STORES
+// FETCH STORES ASSIGNED TO THIS EMPLOYEE
+// ============================================
+// Employees only see the stores they are assigned to via user_stores.
+// If they have exactly one store, it is auto-selected and locked.
+// If they have zero stores, the POS is disabled — no fallback to all stores.
 // ============================================
 $stores = [];
+$assigned_store_count = 0;
+$assigned_store = null;      // Used when exactly one store is assigned
+$default_store_id = null;
+
 try {
+    // Fetch only the stores this employee is assigned to
     $stmt = $conn->prepare("
-        SELECT s.* FROM stores s
-        JOIN user_stores us ON s.store_id = us.store_id
-        WHERE us.user_id = ? AND s.status = 'active'
+        SELECT s.*
+        FROM stores s
+        INNER JOIN user_stores us ON s.store_id = us.store_id
+        WHERE us.user_id = ?
+          AND s.status = 'active'
         ORDER BY s.store_name
     ");
     $stmt->execute([$_SESSION['user_id']]);
     $stores = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    if (empty($stores)) {
-        $stmt = $conn->prepare("SELECT * FROM stores WHERE status = 'active' ORDER BY store_name");
-        $stmt->execute();
-        $stores = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-} catch(PDOException $e) {
-    try {
-        $stmt = $conn->prepare("SELECT * FROM stores WHERE status = 'active' ORDER BY store_name");
-        $stmt->execute();
-        $stores = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch(PDOException $e2) { $stores = []; }
-}
+    $assigned_store_count = count($stores);
 
-$default_store_id = null;
-try {
+    // Fetch the employee's default_store_id (only used when >1 store is assigned)
     $stmt = $conn->prepare("SELECT default_store_id FROM users WHERE user_id = ?");
     $stmt->execute([$_SESSION['user_id']]);
     $user_row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if ($user_row && isset($user_row['default_store_id'])) {
-        $default_store_id = $user_row['default_store_id'];
+    if ($user_row && !empty($user_row['default_store_id'])) {
+        $default_store_id = (int) $user_row['default_store_id'];
     }
-} catch(PDOException $e) {}
+
+    // Case 1: exactly one store → auto-select and lock
+    if ($assigned_store_count === 1) {
+        $assigned_store    = $stores[0];
+        $default_store_id  = (int) $assigned_store['store_id'];
+    }
+
+    // Case 2: multiple stores → ensure default is one of them
+    if ($assigned_store_count > 1 && $default_store_id) {
+        $valid_ids = array_map('intval', array_column($stores, 'store_id'));
+        if (!in_array($default_store_id, $valid_ids, true)) {
+            // Default points at a store the user is no longer assigned to — clear it
+            $default_store_id = null;
+        }
+    }
+
+} catch (PDOException $e) {
+    error_log("POS store fetch failed: " . $e->getMessage());
+    $stores = [];
+    $assigned_store_count = 0;
+}
 
 $payment_methods = ['cash', 'card', 'mobile_money', 'bank_transfer', 'credit'];
 
@@ -89,66 +113,76 @@ $payment_methods = ['cash', 'card', 'mobile_money', 'bank_transfer', 'credit'];
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
     try {
         $conn->beginTransaction();
-        
+
         $store_id = isset($_POST['store_id']) ? intval($_POST['store_id']) : 0;
         if ($store_id <= 0) throw new Exception('Please select a store before completing the sale.');
-        
-        $check = $conn->prepare("SELECT store_id FROM stores WHERE store_id = ? AND status = 'active'");
-        $check->execute([$store_id]);
-        if (!$check->fetch()) throw new Exception('Selected store is invalid or inactive.');
-        
+
+        // Verify the store exists, is active, AND is assigned to this employee
+        $check = $conn->prepare("
+            SELECT s.store_id
+            FROM stores s
+            INNER JOIN user_stores us ON s.store_id = us.store_id
+            WHERE s.store_id = ?
+              AND s.status = 'active'
+              AND us.user_id = ?
+        ");
+        $check->execute([$store_id, $_SESSION['user_id']]);
+        if (!$check->fetch()) {
+            throw new Exception('You are not assigned to this store.');
+        }
+
         $customer_id = !empty($_POST['customer_id']) ? intval($_POST['customer_id']) : null;
         $payment_method = $_POST['payment_method'] ?? '';
         $amount_paid = floatval($_POST['amount_paid'] ?? 0);
         $transaction_id = !empty($_POST['transaction_id']) ? sanitize_input($_POST['transaction_id']) : null;
         $discount_amount = isset($_POST['discount_amount']) ? floatval($_POST['discount_amount']) : 0;
         $cart_items = json_decode($_POST['cart_items'] ?? '[]', true);
-        
+
         if (empty($cart_items)) throw new Exception('Cart is empty.');
         if (empty($payment_method)) throw new Exception('Please select a payment method.');
-        
+
         $sale_type = ($payment_method == 'credit') ? 'credit' : 'cash';
         if ($sale_type == 'credit' && !$customer_id) throw new Exception('Customer is required for credit sales');
-        
+
         $subtotal = 0;
         $tax_amount = 0;
         foreach ($cart_items as $item) {
             $subtotal += $item['quantity'] * $item['price'];
             $tax_amount += $item['tax_amount'] ?? 0;
         }
-        
+
         $total_amount = $subtotal + $tax_amount - $discount_amount;
-        
+
         if ($payment_method != 'credit' && $amount_paid < $total_amount) {
             throw new Exception('Amount paid cannot be less than total amount');
         }
-        
+
         $amount_due = max(0, $total_amount - $amount_paid);
         $payment_status = ($amount_paid >= $total_amount) ? 'paid' : ($amount_paid > 0 ? 'partial' : 'unpaid');
-        
-        $invoice_number = function_exists('generate_invoice_number') 
-                          ? generate_invoice_number() 
+
+        $invoice_number = function_exists('generate_invoice_number')
+                          ? generate_invoice_number()
                           : 'INV' . date('YmdHis') . rand(100, 999);
-        
+
         $stmt = $conn->prepare("
             INSERT INTO sales (
-                invoice_number, store_id, customer_id, sale_date, 
-                subtotal, discount_amount, tax_amount, total_amount, 
-                payment_method, sale_type, payment_status, 
-                amount_paid, amount_due, transaction_id, 
+                invoice_number, store_id, customer_id, sale_date,
+                subtotal, discount_amount, tax_amount, total_amount,
+                payment_method, sale_type, payment_status,
+                amount_paid, amount_due, transaction_id,
                 served_by, status
             ) VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed')
         ");
         $stmt->execute([
-            $invoice_number, $store_id, $customer_id, 
+            $invoice_number, $store_id, $customer_id,
             $subtotal, $discount_amount, $tax_amount, $total_amount,
             $payment_method, $sale_type, $payment_status,
             $amount_paid, $amount_due, $transaction_id,
             $_SESSION['user_id']
         ]);
-        
+
         $sale_id = $conn->lastInsertId();
-        
+
         foreach ($cart_items as $item) {
             $product_id = intval($item['product_id']);
             $quantity = intval($item['quantity']);
@@ -157,15 +191,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
             $tax = floatval($item['tax_amount'] ?? 0);
             $line_total = $quantity * $price;
             $profit = ($price - $cost) * $quantity;
-            
+
             $stmt = $conn->prepare("INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, discount_amount, tax_amount, total_price, profit) VALUES (?, ?, ?, ?, 0, ?, ?, ?)");
             $stmt->execute([$sale_id, $product_id, $quantity, $price, $tax, $line_total, $profit]);
-            
+
             $remaining_qty = $quantity;
             $stmt = $conn->prepare("SELECT inventory_id, quantity FROM store_inventory WHERE store_id = ? AND product_id = ? AND quantity > 0 ORDER BY last_updated ASC, inventory_id ASC");
             $stmt->execute([$store_id, $product_id]);
             $batches = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
+
             foreach ($batches as $batch) {
                 if ($remaining_qty <= 0) break;
                 if ($batch['quantity'] >= $remaining_qty) {
@@ -179,28 +213,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                 }
             }
         }
-        
+
         if ($customer_id) {
             $stmt = $conn->prepare("UPDATE customers SET total_purchases = total_purchases + ? WHERE customer_id = ?");
             $stmt->execute([$total_amount, $customer_id]);
         }
-        
+
         if (function_exists('log_activity')) {
             $sale_type_label = ($sale_type == 'credit') ? 'credit sale' : 'cash sale';
             log_activity($_SESSION['user_id'], 'SALE_CREATED', "Created $sale_type_label $invoice_number", $conn);
         }
-        
+
         $conn->commit();
-        
+
+        // Redirect back to POS with auto-print flag
         if ($sale_type == 'credit') {
             set_alert('success', 'Credit sale completed! Invoice: ' . $invoice_number);
-            header('Location: credit-invoice.php?id=' . $sale_id);
+            header('Location: pos.php?auto_print=' . $sale_id . '&type=credit');
         } else {
-            set_alert('success', 'Sale completed successfully! Invoice: ' . $invoice_number);
-            header('Location: receipt.php?id=' . $sale_id);
+            set_alert('success', 'Sale completed! Invoice: ' . $invoice_number);
+            header('Location: pos.php?auto_print=' . $sale_id);
         }
         exit();
-        
+
     } catch(Exception $e) {
         if (isset($conn) && $conn->inTransaction()) $conn->rollBack();
         set_alert('danger', 'Error: ' . $e->getMessage());
@@ -220,13 +255,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                 <button class="btn btn-link d-lg-none sidebar-toggle me-2">
                     <i class="fas fa-bars"></i>
                 </button>
-                
+
                 <!-- DESKTOP TOGGLE -->
-                <button type="button" class="btn btn-link sidebar-desktop-toggle me-2" 
+                <button type="button" class="btn btn-link sidebar-desktop-toggle me-2"
                         id="sidebarDesktopToggle" title="Toggle Sidebar (Ctrl+B)">
                     <i class="fas fa-bars"></i>
                 </button>
-                
+
                 <h5 class="mb-0">
                     <i class="fas fa-cash-register me-2" style="color: var(--cyber-orange);"></i>
                     Point of Sale
@@ -244,7 +279,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
             </div>
         </div>
     </div>
-    
+
     <div class="content-area pos-content">
         <?php $alert = get_alert(); if ($alert): ?>
             <div class="alert alert-<?php echo $alert['type']; ?> alert-dismissible fade show">
@@ -253,36 +288,84 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         <?php endif; ?>
-        
-        <?php if (empty($stores)): ?>
+
+        <?php if ($assigned_store_count === 0): ?>
             <div class="alert alert-danger">
                 <i class="fas fa-exclamation-triangle me-2"></i>
-                <strong>No stores available!</strong> Ask admin to assign you to a store.
+                <strong>No store assigned!</strong> Ask your administrator to assign you to a store before using the POS.
             </div>
         <?php endif; ?>
-        
+
         <div class="row g-3">
             <!-- LEFT -->
             <div class="col-lg-8">
-                
+
                 <!-- Store Selection -->
                 <div class="card cyber-card mb-3">
                     <div class="card-body">
                         <div class="d-flex align-items-center gap-3 flex-wrap">
                             <div class="store-icon-badge"><i class="fas fa-store"></i></div>
                             <div class="flex-grow-1">
-                                <label class="form-label-cyber mb-1" style="font-size: 0.7rem;">
-                                    <i class="fas fa-map-marker-alt me-1"></i>Active Store
-                                </label>
-                                <select id="store-select" class="form-select form-select-cyber" required>
-                                    <option value="">-- Select Store to Begin --</option>
-                                    <?php foreach ($stores as $store): ?>
-                                        <option value="<?php echo $store['store_id']; ?>"
-                                                <?php echo ($default_store_id == $store['store_id']) ? 'selected' : ''; ?>>
-                                            <?php echo htmlspecialchars($store['store_name']); ?>
+
+                                <?php if ($assigned_store_count === 0): ?>
+
+                                    <!-- No store assigned -->
+                                    <label class="form-label-cyber mb-1" style="font-size: 0.7rem;">
+                                        <i class="fas fa-map-marker-alt me-1"></i>Active Store
+                                    </label>
+                                    <div class="alert alert-danger mb-0 py-2 px-3" style="font-size: 0.85rem;">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>
+                                        <strong>No store assigned.</strong>
+                                        Ask your administrator to assign you to a store before using the POS.
+                                    </div>
+
+                                <?php elseif ($assigned_store_count === 1): ?>
+
+                                    <!-- Exactly one store: auto-selected and locked -->
+                                    <label class="form-label-cyber mb-1" style="font-size: 0.7rem;">
+                                        <i class="fas fa-map-marker-alt me-1"></i>Active Store
+                                        <span class="badge bg-success ms-2" style="font-size: 0.65rem;">
+                                            <i class="fas fa-lock me-1"></i>Assigned
+                                        </span>
+                                    </label>
+                                    <div class="assigned-store-display">
+                                        <i class="fas fa-store me-2"></i>
+                                        <span><?php echo htmlspecialchars($assigned_store['store_name']); ?></span>
+                                        <?php if (!empty($assigned_store['location'])): ?>
+                                            <small class="text-muted ms-2">— <?php echo htmlspecialchars($assigned_store['location']); ?></small>
+                                        <?php endif; ?>
+                                    </div>
+                                    <!-- Hidden select so existing JS still finds #store-select -->
+                                    <select id="store-select" style="display:none;">
+                                        <option value="<?php echo (int) $assigned_store['store_id']; ?>" selected>
+                                            <?php echo htmlspecialchars($assigned_store['store_name']); ?>
                                         </option>
-                                    <?php endforeach; ?>
-                                </select>
+                                    </select>
+
+                                <?php else: ?>
+
+                                    <!-- Multiple stores: employee picks -->
+                                    <label class="form-label-cyber mb-1" style="font-size: 0.7rem;">
+                                        <i class="fas fa-map-marker-alt me-1"></i>Active Store
+                                        <span class="badge bg-info ms-2" style="font-size: 0.65rem;">
+                                            <?php echo (int) $assigned_store_count; ?> assigned
+                                        </span>
+                                    </label>
+                                    <select id="store-select" class="form-select form-select-cyber" required>
+                                        <option value="">-- Select Store to Begin --</option>
+                                        <?php foreach ($stores as $store): ?>
+                                            <option value="<?php echo (int) $store['store_id']; ?>"
+                                                    <?php echo ((int) $default_store_id === (int) $store['store_id']) ? 'selected' : ''; ?>>
+                                                <?php echo htmlspecialchars($store['store_name']); ?>
+                                                <?php if (!empty($store['location'])): ?>
+                                                    — <?php echo htmlspecialchars($store['location']); ?>
+                                                <?php endif; ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+
+                                <?php endif; ?>
+
                             </div>
                             <div id="store-status" class="store-status-badge">
                                 <span class="status-dot-inactive"></span>
@@ -291,13 +374,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Product Search -->
                 <div class="pos-search-card mb-3">
                     <div class="search-input-wrapper">
                         <div class="search-icon"><i class="fas fa-search"></i></div>
-                        <input type="text" id="product-search" class="pos-search-input" 
-                               placeholder="Search by product name, code, or scan barcode..." 
+                        <input type="text" id="product-search" class="pos-search-input"
+                               placeholder="Search by product name, code, or scan barcode..."
                                autofocus autocomplete="off">
                         <div class="search-hints">
                             <span class="hint-key">↑↓</span><span class="hint-text">Navigate</span>
@@ -305,7 +388,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Search Results -->
                 <div id="search-results-container" class="search-results-container mb-3" style="display:none;">
                     <div class="search-results-header">
@@ -316,7 +399,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                     </div>
                     <div id="search-results" class="search-results-list"></div>
                 </div>
-                
+
                 <!-- Cart -->
                 <div class="card cyber-card">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -358,7 +441,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                     </div>
                 </div>
             </div>
-            
+
             <!-- RIGHT: Sale Summary -->
             <div class="col-lg-4">
                 <div class="card cyber-card summary-card">
@@ -366,9 +449,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                         <i class="fas fa-calculator me-2"></i>Sale Summary
                     </div>
                     <div class="card-body">
-                        <form id="sale-form" method="POST">
+                        <form id="sale-form" method="POST" <?php echo ($assigned_store_count === 0) ? 'style="pointer-events:none; opacity:0.5;"' : ''; ?>>
                             <input type="hidden" name="store_id" id="store-id-hidden" value="<?php echo $default_store_id; ?>">
-                            
+
                             <div class="mb-3">
                                 <label class="form-label-cyber">
                                     <i class="fas fa-user me-2"></i>Customer
@@ -378,7 +461,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                     <option value="">🚶 Walk-in Customer</option>
                                 </select>
                             </div>
-                            
+
                             <div class="totals-display">
                                 <div class="total-row">
                                     <span class="total-label">Subtotal</span>
@@ -392,59 +475,49 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                     <span class="total-label"><i class="fas fa-tag me-1"></i>Discount</span>
                                     <div class="discount-input-wrapper">
                                         <span class="currency-prefix">UGX</span>
-                                        <input type="number" name="discount_amount" id="discount-input" 
-                                               class="discount-input" step="0.01" min="0" value="0">
+                                        <input type="text"
+                                            inputmode="decimal"
+                                            name="discount_amount"
+                                            id="discount-input"
+                                            class="discount-input"
+                                            value="0"
+                                            autocomplete="off"
+                                            onwheel="this.blur()"
+                                            onkeydown="return handleAmountKeydown(event)">
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <div class="grand-total-box">
                                 <span class="grand-total-label">TOTAL</span>
                                 <span class="grand-total-value" id="total-display">UGX 0</span>
                                 <input type="hidden" id="total-value" value="0">
                             </div>
-                            
+
                             <div class="mb-3">
                                 <label class="form-label-cyber">
                                     <i class="fas fa-credit-card me-2"></i>Payment Method
                                 </label>
-                                <div class="payment-methods-grid">
-                                    <div class="payment-method-option" data-value="cash">
-                                        <i class="fas fa-money-bill-wave"></i><span>Cash</span>
-                                    </div>
-                                    <div class="payment-method-option" data-value="card">
-                                        <i class="fas fa-credit-card"></i><span>Card</span>
-                                    </div>
-                                    <div class="payment-method-option" data-value="mobile_money">
-                                        <i class="fas fa-mobile-alt"></i><span>Mobile</span>
-                                    </div>
-                                    <div class="payment-method-option" data-value="bank_transfer">
-                                        <i class="fas fa-university"></i><span>Bank</span>
-                                    </div>
-                                    <div class="payment-method-option" data-value="credit">
-                                        <i class="fas fa-file-invoice-dollar"></i><span>Credit</span>
-                                    </div>
-                                </div>
-                                <select name="payment_method" id="payment-method" class="d-none" required>
-                                    <option value="">Select Payment Method</option>
-                                    <?php foreach ($payment_methods as $method): ?>
-                                        <option value="<?php echo $method; ?>">
-                                            <?php echo ucfirst(str_replace('_', ' ', $method)); ?>
-                                        </option>
-                                    <?php endforeach; ?>
+                                <select name="payment_method" id="payment-method" class="form-select payment-select-compact" required>
+                                    <option value="">💰 Select Payment Method</option>
+                                    <option value="cash">💵 Cash</option>
+                                    <option value="card">💳 Card</option>
+                                    <option value="mobile_money">📱 Mobile Money</option>
+                                    <option value="bank_transfer">🏦 Bank Transfer</option>
+                                    <option value="credit">📋 Credit (Pay Later)</option>
                                 </select>
                             </div>
-                            
+
                             <div id="transaction-id-section" class="mb-3" style="display:none;">
                                 <label class="form-label-cyber">
                                     <i class="fas fa-hashtag me-2"></i>Transaction ID
                                     <span class="badge bg-danger ms-2">Required</span>
                                 </label>
-                                <input type="text" name="transaction_id" id="transaction-id" 
-                                       class="form-control form-control-cyber" 
+                                <input type="text" name="transaction_id" id="transaction-id"
+                                       class="form-control form-control-cyber"
                                        placeholder="Enter transaction ID">
                             </div>
-                            
+
                             <div id="payment-section">
                                 <div class="mb-3">
                                     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -457,14 +530,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                     </div>
                                     <div class="amount-input-wrapper">
                                         <span class="currency-prefix">UGX</span>
-                                        <input type="number" name="amount_paid" id="amount-paid" 
-                                               class="amount-input" step="0.01" min="0" value="0" required>
+                                        <input type="text"
+                                            inputmode="decimal"
+                                            name="amount_paid"
+                                            id="amount-paid"
+                                            class="amount-input"
+                                            value="0"
+                                            required
+                                            autocomplete="off"
+                                            onwheel="this.blur()"
+                                            onkeydown="return handleAmountKeydown(event)">
                                     </div>
                                     <small class="text-danger d-none" id="amount-error">
                                         <i class="fas fa-exclamation-circle me-1"></i>Amount cannot be less than total
                                     </small>
                                 </div>
-                                
+
                                 <div class="change-display" id="change-container" style="display:none;">
                                     <span class="change-label">
                                         <i class="fas fa-hand-holding-usd me-1"></i>Change
@@ -472,7 +553,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                     <span class="change-value" id="change-display">UGX 0</span>
                                 </div>
                             </div>
-                            
+
                             <div id="credit-notice" class="credit-notice" style="display:none;">
                                 <div class="credit-notice-icon"><i class="fas fa-exclamation-triangle"></i></div>
                                 <div class="credit-notice-content">
@@ -480,30 +561,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                     <p>Customer is required. Payment can be partial or zero.</p>
                                 </div>
                             </div>
-                            
+
                             <input type="hidden" name="cart_items" id="cart-items-input">
                             <input type="hidden" name="complete_sale" value="1">
-                            
-                            <button type="submit" class="btn-complete-sale" id="complete-sale-btn" disabled>
+
+                            <button type="submit" class="btn-complete-sale" id="complete-sale-btn"
+                                    <?php echo ($assigned_store_count === 0) ? 'disabled' : ''; ?>>
                                 <i class="fas fa-check-circle"></i>
                                 <span>Complete Sale</span>
-                                <span class="btn-shortcut">F12</span>
                             </button>
                             
-                            <div class="keyboard-shortcuts">
-                                <div class="shortcut-item">
-                                    <span class="shortcut-key">F2</span>
-                                    <span class="shortcut-desc">Focus</span>
-                                </div>
-                                <div class="shortcut-item">
-                                    <span class="shortcut-key">F4</span>
-                                    <span class="shortcut-desc">Clear</span>
-                                </div>
-                                <div class="shortcut-item">
-                                    <span class="shortcut-key">F12</span>
-                                    <span class="shortcut-desc">Complete</span>
-                                </div>
-                            </div>
                         </form>
                     </div>
                 </div>
@@ -522,6 +589,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
 .status-dot-inactive { width: 8px; height: 8px; background: #A0AEC0; border-radius: 50%; }
 .status-dot-active { width: 8px; height: 8px; background: #48BB78; border-radius: 50%; animation: pulse-dot 2s infinite; }
 @keyframes pulse-dot { 0%, 100% { box-shadow: 0 0 0 0 rgba(72, 187, 120, 0.5); } 50% { box-shadow: 0 0 0 5px rgba(72, 187, 120, 0); } }
+
+/* ============================================
+   ASSIGNED STORE DISPLAY (single-store lock)
+   ============================================ */
+.assigned-store-display {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, rgba(72, 187, 120, 0.1), rgba(72, 187, 120, 0.05));
+    border: 2px solid rgba(72, 187, 120, 0.3);
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #2F855A;
+}
+.assigned-store-display i {
+    color: #38A169;
+    font-size: 1.1rem;
+}
+.assigned-store-display small {
+    font-weight: 500;
+}
+
 .pos-search-card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08); border: 1px solid #E2E8F0; }
 .search-input-wrapper { position: relative; display: flex; align-items: center; }
 .search-icon { position: absolute; left: 20px; color: #6B46C1; font-size: 1.1rem; z-index: 2; }
@@ -610,8 +700,73 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
     .summary-card { position: static; margin-top: 20px; }
     .search-hints { display: none; }
 }
+/* ============================================
+   COMPACT PAYMENT SELECT
+   ============================================ */
+.payment-select-compact {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #E2E8F0;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1A202C;
+    background: #F7FAFC;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B46C1' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+    padding-right: 40px;
+}
+
+.payment-select-compact:focus {
+    outline: none;
+    border-color: #6B46C1;
+    background-color: #fff;
+    box-shadow: 0 0 0 3px rgba(107, 70, 193, 0.15);
+}
+
+.payment-select-compact:hover {
+    border-color: #6B46C1;
+}
 </style>
 
+<?php if ($auto_print_sale_id > 0): ?>
+<!-- Auto-Print Hidden Iframe -->
+<div id="printContainer" style="position: fixed; top: -9999px; left: -9999px; width: 1px; height: 1px; overflow: hidden;">
+    <?php if ($auto_print_type === 'credit'): ?>
+        <iframe id="printFrame" src="credit-invoice.php?id=<?php echo $auto_print_sale_id; ?>&autoprint=1"
+                style="width: 300px; height: 500px; border: none;"></iframe>
+    <?php else: ?>
+        <iframe id="printFrame" src="receipt.php?id=<?php echo $auto_print_sale_id; ?>&autoprint=1"
+                style="width: 300px; height: 500px; border: none;"></iframe>
+    <?php endif; ?>
+</div>
+
+<script>
+// Silent auto-print then clean up URL
+(function() {
+    const saleId = <?php echo $auto_print_sale_id; ?>;
+    console.log('🖨️ Auto-print triggered for sale:', saleId);
+
+    // Clean up URL (remove auto_print param) after 2 seconds
+    setTimeout(function() {
+        if (window.history.replaceState) {
+            const cleanUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+        }
+    }, 2000);
+
+    // Remove the iframe after printing (5 seconds)
+    setTimeout(function() {
+        const container = document.getElementById('printContainer');
+        if (container) container.remove();
+    }, 5000);
+})();
+</script>
+<?php endif; ?>
 <?php include '../includes/footer.php'; ?>
 
 <script>
@@ -621,49 +776,49 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
    ============================================ */
 (function() {
     'use strict';
-    
+
     function initSidebar() {
         const sidebar = document.getElementById('sidebar');
         const overlay = document.getElementById('sidebarOverlay');
         const collapseBtn = document.getElementById('sidebarCollapseBtn');
         const desktopToggle = document.getElementById('sidebarDesktopToggle');
         const mobileToggles = document.querySelectorAll('.sidebar-toggle');
-        
+
         console.log('🔧 Sidebar init:', {
             sidebar: !!sidebar,
             collapseBtn: !!collapseBtn,
             desktopToggle: !!desktopToggle
         });
-        
+
         if (!sidebar) {
             console.error('❌ No #sidebar found');
             return;
         }
-        
+
         // Restore saved state
         if (localStorage.getItem('cyberSidebarCollapsed') === '1' && window.innerWidth >= 992) {
             sidebar.classList.add('collapsed');
             document.body.classList.add('sidebar-collapsed');
             console.log('📌 Restored collapsed state');
         }
-        
+
         // Toggle function
         function toggle() {
             if (window.innerWidth < 992) return;
-            
+
             sidebar.classList.toggle('collapsed');
             document.body.classList.toggle('sidebar-collapsed');
-            
+
             const isNowCollapsed = sidebar.classList.contains('collapsed');
             localStorage.setItem('cyberSidebarCollapsed', isNowCollapsed ? '1' : '0');
-            
+
             console.log('🔄 Toggled:', isNowCollapsed ? 'COLLAPSED' : 'EXPANDED');
-            
+
             setTimeout(function() {
                 window.dispatchEvent(new Event('resize'));
             }, 350);
         }
-        
+
         // Wire collapse button (bottom of sidebar)
         if (collapseBtn) {
             collapseBtn.addEventListener('click', function(e) {
@@ -675,7 +830,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
         } else {
             console.warn('⚠️ #sidebarCollapseBtn missing');
         }
-        
+
         // Wire desktop toggle (top navbar)
         if (desktopToggle) {
             desktopToggle.addEventListener('click', function(e) {
@@ -687,7 +842,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
         } else {
             console.warn('⚠️ #sidebarDesktopToggle missing');
         }
-        
+
         // Ctrl+B
         document.addEventListener('keydown', function(e) {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
@@ -695,7 +850,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                 toggle();
             }
         });
-        
+
         // Mobile toggle
         mobileToggles.forEach(function(btn) {
             btn.addEventListener('click', function(e) {
@@ -705,7 +860,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                 if (overlay) overlay.classList.toggle('show');
             });
         });
-        
+
         // Overlay click
         if (overlay) {
             overlay.addEventListener('click', function() {
@@ -713,10 +868,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                 overlay.classList.remove('show');
             });
         }
-        
+
         console.log('🎉 Sidebar ready!');
     }
-    
+
     // Run immediately if DOM is ready, else wait
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initSidebar);
@@ -745,7 +900,7 @@ function updateClock() {
 document.addEventListener('DOMContentLoaded', function() {
     setInterval(updateClock, 1000);
     updateClock();
-    
+
     loadCustomers();
     setupStoreSelector();
     setupPaymentMethods();
@@ -761,7 +916,7 @@ document.addEventListener('DOMContentLoaded', function() {
 function loadCustomers() {
     const customerSelect = document.getElementById('customer-select');
     if (!customerSelect) return;
-    
+
     fetch('../includes/ajax_customers.php')
         .then(r => r.json())
         .then(data => {
@@ -777,19 +932,122 @@ function loadCustomers() {
         .catch(e => console.error('Error loading customers:', e));
 }
 
+/* ============================================
+   AMOUNT INPUT HELPERS
+   Prevents accidental value changes from
+   scroll wheel and arrow keys
+   ============================================ */
+function handleAmountKeydown(e) {
+    // Allow: Backspace, Delete, Tab, Escape, Enter, Home, End, Arrow Left/Right
+    const allowedKeys = ['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'Home', 'End', 'ArrowLeft', 'ArrowRight'];
+
+    if (allowedKeys.includes(e.key)) {
+        return true;
+    }
+
+    // Block: Arrow Up/Down (prevent increment/decrement)
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        return false;
+    }
+
+    // Allow: Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+Z
+    if ((e.ctrlKey || e.metaKey) && ['a', 'c', 'v', 'x', 'z'].includes(e.key.toLowerCase())) {
+        return true;
+    }
+
+    // Allow: Numbers (0-9) and single decimal point
+    if (/[0-9.]/.test(e.key)) {
+        // Only allow one decimal point
+        if (e.key === '.' && e.target.value.includes('.')) {
+            e.preventDefault();
+            return false;
+        }
+        return true;
+    }
+
+    // Block everything else
+    e.preventDefault();
+    return false;
+}
+
+// Sanitize amount inputs on blur (remove non-numeric, enforce 2 decimals)
+function sanitizeAmountInput(input) {
+    let value = input.value.replace(/[^0-9.]/g, '');
+
+    // Only allow one decimal point
+    const parts = value.split('.');
+    if (parts.length > 2) {
+        value = parts[0] + '.' + parts.slice(1).join('');
+    }
+
+    // Limit to 2 decimal places
+    if (parts[1] && parts[1].length > 2) {
+        value = parts[0] + '.' + parts[1].substring(0, 2);
+    }
+
+    // Default to 0 if empty
+    if (value === '' || value === '.') {
+        value = '0';
+    }
+
+    input.value = value;
+}
+
+// Attach to inputs on page load
+document.addEventListener('DOMContentLoaded', function() {
+    ['amount-paid', 'discount-input'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        // Sanitize on blur
+        el.addEventListener('blur', function() {
+            sanitizeAmountInput(this);
+            // Trigger the change handlers
+            if (id === 'amount-paid') {
+                calculateChange();
+                updateCompleteButton();
+            } else {
+                updateTotals();
+            }
+        });
+
+        // Prevent scroll from changing value
+        el.addEventListener('wheel', function(e) {
+            e.preventDefault();
+            this.blur();
+        }, { passive: false });
+
+        // Sanitize on paste
+        el.addEventListener('paste', function(e) {
+            e.preventDefault();
+            const pasted = (e.clipboardData || window.clipboardData).getData('text');
+            const clean = pasted.replace(/[^0-9.]/g, '');
+            this.value = clean;
+            // Trigger change
+            if (id === 'amount-paid') {
+                calculateChange();
+                updateCompleteButton();
+            } else {
+                updateTotals();
+            }
+        });
+    });
+});
+
 function setupStoreSelector() {
     const storeSelect = document.getElementById('store-select');
     const storeStatus = document.getElementById('store-status');
     const hiddenInput = document.getElementById('store-id-hidden');
-    
+
     if (!storeSelect) return;
-    
+
     if (storeSelect.value) {
         storeId = storeSelect.value;
         if (hiddenInput) hiddenInput.value = storeId;
         updateStoreStatus(storeId, storeStatus);
     }
-    
+
     storeSelect.addEventListener('change', function() {
         storeId = this.value;
         if (hiddenInput) hiddenInput.value = storeId;
@@ -813,15 +1071,13 @@ function updateStoreStatus(storeId, storeStatus) {
 }
 
 function setupPaymentMethods() {
-    document.querySelectorAll('.payment-method-option').forEach(function(option) {
-        option.addEventListener('click', function() {
-            document.querySelectorAll('.payment-method-option').forEach(o => o.classList.remove('selected'));
-            this.classList.add('selected');
-            selectedPaymentMethod = this.dataset.value;
-            document.getElementById('payment-method').value = selectedPaymentMethod;
-            updatePaymentUI(selectedPaymentMethod);
-            updateCompleteButton();
-        });
+    const paymentSelect = document.getElementById('payment-method');
+    if (!paymentSelect) return;
+
+    paymentSelect.addEventListener('change', function() {
+        selectedPaymentMethod = this.value;
+        updatePaymentUI(selectedPaymentMethod);
+        updateCompleteButton();
     });
 }
 
@@ -832,7 +1088,7 @@ function updatePaymentUI(paymentMethod) {
     const transactionSection = document.getElementById('transaction-id-section');
     const transactionInput = document.getElementById('transaction-id');
     const amountPaid = document.getElementById('amount-paid');
-    
+
     if (paymentMethod === 'credit') {
         paymentSection.style.display = 'block';
         creditNotice.style.display = 'flex';
@@ -856,14 +1112,14 @@ function updatePaymentUI(paymentMethod) {
         transactionInput.removeAttribute('required');
         amountPaid.setAttribute('required', 'required');
     }
-    
+
     calculateChange();
 }
 
 function setupProductSearch() {
     const searchInput = document.getElementById('product-search');
     if (!searchInput) return;
-    
+
     searchInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -882,7 +1138,7 @@ function setupProductSearch() {
             clearSearchResults();
         }
     });
-    
+
     searchInput.addEventListener('input', function() {
         clearTimeout(searchTimeout);
         const query = this.value;
@@ -897,10 +1153,10 @@ function setupProductSearch() {
 function searchProducts() {
     const query = document.getElementById('product-search').value;
     const store_id = document.getElementById('store-select').value;
-    
+
     if (!store_id) { showToast('Please select a store first', 'warning'); return; }
     if (query.length < 2) return;
-    
+
     fetch('../includes/ajax_search_products.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -913,7 +1169,7 @@ function searchProducts() {
             document.getElementById('search-results-container').style.display = 'block';
             return;
         }
-        
+
         if (products.length === 0) {
             document.getElementById('search-results').innerHTML = '<div style="text-align:center;padding:40px;color:#A0AEC0;"><i class="fas fa-search" style="font-size:3rem;opacity:0.3;margin-bottom:16px;display:block;"></i><p>No products found</p></div>';
             document.getElementById('search-results-container').style.display = 'block';
@@ -921,7 +1177,7 @@ function searchProducts() {
             selectedProductIndex = -1;
             return;
         }
-        
+
         productsData = products;
         selectedProductIndex = 0;
         renderProducts();
@@ -939,9 +1195,9 @@ function renderProducts() {
         let stockClass = 'stock-good';
         if (outOfStock) stockClass = 'stock-out';
         else if (product.quantity <= 10) stockClass = 'stock-low';
-        
+
         const clickHandler = outOfStock ? '' : `onclick="addToCart(${product.product_id}, '${String(product.product_name).replace(/'/g, "\\'")}', ${product.selling_price}, ${product.purchase_price}, ${product.tax_rate}, ${product.quantity})"`;
-        
+
         html += `
             <div class="product-item ${selectedClass} ${disabledClass}" data-index="${index}" ${clickHandler}>
                 <div class="product-info">
@@ -962,7 +1218,7 @@ function navigateProducts(key) {
     if (productsData.length === 0) return;
     if (key === 'ArrowDown') selectedProductIndex = (selectedProductIndex + 1) % productsData.length;
     else if (key === 'ArrowUp') selectedProductIndex = selectedProductIndex <= 0 ? productsData.length - 1 : selectedProductIndex - 1;
-    
+
     renderProducts();
     const sel = document.querySelector('.product-item.selected');
     if (sel) sel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -977,7 +1233,7 @@ function clearSearchResults() {
 
 function addToCart(productId, productName, price, cost, taxRate, availableQty) {
     if (availableQty <= 0) { showToast('Product is out of stock', 'warning'); return; }
-    
+
     const existing = cart.find(i => i.product_id === productId);
     if (existing) {
         if (existing.quantity < availableQty) {
@@ -999,7 +1255,7 @@ function addToCart(productId, productName, price, cost, taxRate, availableQty) {
         });
         showToast(`${productName} added`, 'success');
     }
-    
+
     updateCart();
     clearSearchResults();
     const searchInput = document.getElementById('product-search');
@@ -1028,7 +1284,7 @@ function updateQuantity(index, newQty) {
 function updateCart() {
     const cartContainer = document.getElementById('cart-items');
     document.getElementById('cart-count').textContent = cart.length;
-    
+
     if (cart.length === 0) {
         cartContainer.innerHTML = `
             <tr class="empty-cart-row">
@@ -1066,15 +1322,15 @@ function updateCart() {
 function updateTotals() {
     let subtotal = 0, taxTotal = 0;
     cart.forEach(i => { subtotal += i.price * i.quantity; taxTotal += i.tax_amount || 0; });
-    
+
     const discount = parseFloat(document.getElementById('discount-input').value) || 0;
     const total = Math.max(0, subtotal + taxTotal - discount);
-    
+
     document.getElementById('subtotal-display').textContent = 'UGX ' + subtotal.toFixed(2);
     document.getElementById('tax-display').textContent = 'UGX ' + taxTotal.toFixed(2);
     document.getElementById('total-display').textContent = 'UGX ' + total.toFixed(2);
     document.getElementById('total-value').value = total.toFixed(2);
-    
+
     calculateChange();
     updateCompleteButton();
 }
@@ -1098,16 +1354,16 @@ function updateCompleteButton() {
     const total = parseFloat(document.getElementById('total-value').value) || 0;
     const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
     const err = document.getElementById('amount-error');
-    
+
     let ok = (storeId !== null && storeId !== '') && cart.length > 0 && paymentMethod !== '';
-    
+
     if (paymentMethod && paymentMethod !== 'credit') {
         if (paid < total) { err.classList.remove('d-none'); ok = false; }
         else { err.classList.add('d-none'); }
     } else {
         err.classList.add('d-none');
     }
-    
+
     btn.disabled = !ok;
 }
 
@@ -1147,61 +1403,45 @@ function setupClearCart() {
 function setupFormSubmit() {
     const form = document.getElementById('sale-form');
     if (!form) return;
-    
+
     form.addEventListener('submit', function(e) {
         if (!storeId) { e.preventDefault(); showToast('Please select a store', 'warning'); return false; }
         if (cart.length === 0) { e.preventDefault(); showToast('Cart is empty', 'warning'); return false; }
-        
+
         const pm = document.getElementById('payment-method').value;
         if (!pm) { e.preventDefault(); showToast('Select a payment method', 'warning'); return false; }
-        
+
         if (pm === 'credit' && !document.getElementById('customer-select').value) {
             e.preventDefault(); showToast('Customer required for credit', 'warning'); return false;
         }
         if (pm === 'mobile_money' && !document.getElementById('transaction-id').value) {
             e.preventDefault(); showToast('Transaction ID required', 'warning'); return false;
         }
-        
+
         const total = parseFloat(document.getElementById('total-value').value) || 0;
         const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
         if (pm !== 'credit' && paid < total) {
             e.preventDefault(); showToast('Amount paid is less than total', 'warning'); return false;
         }
-        
+
         document.getElementById('store-id-hidden').value = storeId;
         document.getElementById('cart-items-input').value = JSON.stringify(cart);
-        
+
         const sb = document.getElementById('complete-sale-btn');
         sb.disabled = true;
         sb.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
     });
 }
 
-function setupKeyboardShortcuts() {
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'F2') {
-            e.preventDefault();
-            const si = document.getElementById('product-search');
-            if (si) si.focus();
-        } else if (e.key === 'F4') {
-            e.preventDefault();
-            document.getElementById('clear-cart').click();
-        } else if (e.key === 'F12') {
-            e.preventDefault();
-            const cb = document.getElementById('complete-sale-btn');
-            if (!cb.disabled) document.getElementById('sale-form').submit();
-        }
-    });
-}
 
 function showToast(message, type) {
     type = type || 'info';
     const icons = { success: 'check-circle', warning: 'exclamation-triangle', error: 'times-circle', info: 'info-circle' };
     const colors = { success: '#48BB78', warning: '#ED8936', error: '#E53E3E', info: '#6B46C1' };
-    
+
     const existing = document.querySelector('.pos-toast');
     if (existing) existing.remove();
-    
+
     const toast = document.createElement('div');
     toast.className = 'pos-toast';
     toast.style.cssText = `
@@ -1216,7 +1456,7 @@ function showToast(message, type) {
     `;
     toast.innerHTML = `<i class="fas fa-${icons[type]}" style="color: ${colors[type]}; font-size: 1.2rem;"></i><span>${message}</span>`;
     document.body.appendChild(toast);
-    
+
     setTimeout(function() { toast.remove(); }, 2500);
 }
 </script>

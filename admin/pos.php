@@ -2,6 +2,12 @@
 require_once '../config/config.php';
 require_admin();
 
+// ============================================
+// AUTO-PRINT HANDLER
+// ============================================
+$auto_print_sale_id = isset($_GET['auto_print']) ? intval($_GET['auto_print']) : 0;
+$auto_print_type = $_GET['type'] ?? 'cash';
+
 $page_title = "Point of Sale";
 
 // ============================================
@@ -159,15 +165,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
         }
         
         $conn->commit();
-        
-        if ($sale_type == 'credit') {
-            set_alert('success', 'Credit sale completed! Invoice: ' . $invoice_number);
-            header('Location: Credit_Invoice?id=' . $sale_id);
-        } else {
-            set_alert('success', 'Sale completed! Invoice: ' . $invoice_number);
-            header('Location: Receipt?id=' . $sale_id);
-        }
-        exit();
+
+            // Redirect back to POS with auto-print flag
+            if ($sale_type == 'credit') {
+                set_alert('success', 'Credit sale completed! Invoice: ' . $invoice_number);
+                header('Location: pos.php?auto_print=' . $sale_id . '&type=credit');
+            } else {
+                set_alert('success', 'Sale completed! Invoice: ' . $invoice_number);
+                header('Location: pos.php?auto_print=' . $sale_id);
+            }
+            exit();
         
     } catch(Exception $e) {
         if (isset($conn) && $conn->inTransaction()) $conn->rollBack();
@@ -557,6 +564,40 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
     .search-hints { display: none; }
 }
 </style>
+<?php if ($auto_print_sale_id > 0): ?>
+<!-- Auto-Print Hidden Iframe -->
+<div id="printContainer" style="position: fixed; top: -9999px; left: -9999px; width: 1px; height: 1px; overflow: hidden;">
+    <?php if ($auto_print_type === 'credit'): ?>
+        <iframe id="printFrame" src="credit-invoice.php?id=<?php echo $auto_print_sale_id; ?>&autoprint=1" 
+                style="width: 300px; height: 500px; border: none;"></iframe>
+    <?php else: ?>
+        <iframe id="printFrame" src="receipt.php?id=<?php echo $auto_print_sale_id; ?>&autoprint=1" 
+                style="width: 300px; height: 500px; border: none;"></iframe>
+    <?php endif; ?>
+</div>
+
+<script>
+// Silent auto-print then clean up URL
+(function() {
+    const saleId = <?php echo $auto_print_sale_id; ?>;
+    console.log('🖨️ Auto-print triggered for sale:', saleId);
+    
+    // Clean up URL (remove auto_print param) after 2 seconds
+    setTimeout(function() {
+        if (window.history.replaceState) {
+            const cleanUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+        }
+    }, 2000);
+    
+    // Remove the iframe after printing (5 seconds)
+    setTimeout(function() {
+        const container = document.getElementById('printContainer');
+        if (container) container.remove();
+    }, 5000);
+})();
+</script>
+<?php endif; ?>
 
 <?php include '../includes/footer.php'; ?>
 

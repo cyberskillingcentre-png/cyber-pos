@@ -95,13 +95,13 @@ try {
                 <button class="btn btn-link d-lg-none sidebar-toggle me-2">
                     <i class="fas fa-bars"></i>
                 </button>
-                
+
                 <!-- DESKTOP TOGGLE -->
-                <button type="button" class="btn btn-link sidebar-desktop-toggle me-2" 
+                <button type="button" class="btn btn-link sidebar-desktop-toggle me-2"
                         id="sidebarDesktopToggle" title="Toggle Sidebar (Ctrl+B)">
                     <i class="fas fa-bars"></i>
                 </button>
-                
+
                 <h5 class="mb-0">
                     <i class="fas fa-tachometer-alt me-2" style="color: var(--cyber-orange);"></i>
                     Dashboard
@@ -119,7 +119,7 @@ try {
             </div>
         </div>
     </div>
-    
+
     <div class="content-area">
         <?php $alert = get_alert(); if ($alert): ?>
             <div class="alert alert-<?php echo $alert['type']; ?> alert-dismissible fade show">
@@ -128,7 +128,7 @@ try {
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         <?php endif; ?>
-        
+
         <!-- Welcome Banner -->
         <div class="welcome-banner mb-4">
             <div class="welcome-content">
@@ -148,7 +148,7 @@ try {
                 <div class="circle circle-3"></div>
             </div>
         </div>
-        
+
         <!-- Stat Cards -->
         <div class="row g-4 mb-4">
             <div class="col-xl-3 col-md-6">
@@ -164,7 +164,7 @@ try {
                     </div>
                 </div>
             </div>
-            
+
             <div class="col-xl-3 col-md-6">
                 <div class="stat-card stat-card-orange">
                     <div class="stat-icon"><i class="fas fa-clock"></i></div>
@@ -178,7 +178,7 @@ try {
                     </div>
                 </div>
             </div>
-            
+
             <div class="col-xl-3 col-md-6">
                 <div class="stat-card stat-card-green">
                     <div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div>
@@ -192,7 +192,7 @@ try {
                     </div>
                 </div>
             </div>
-            
+
             <div class="col-xl-3 col-md-6">
                 <div class="stat-card stat-card-red">
                     <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
@@ -207,7 +207,7 @@ try {
                 </div>
             </div>
         </div>
-        
+
         <!-- Quick Actions -->
         <div class="row g-4 mb-4">
             <div class="col-12">
@@ -238,7 +238,7 @@ try {
                 </div>
             </div>
         </div>
-        
+
         <!-- Recent Orders -->
         <div class="row g-4">
             <div class="col-12">
@@ -255,11 +255,20 @@ try {
                     <div class="card-body p-0">
                         <?php if (empty($recent_orders)): ?>
                             <div class="empty-state">
-                                <i class="fas fa-shopping-cart"></i>
-                                <h5>No Orders Yet</h5>
-                                <p>Start shopping to see your orders here</p>
-                                <a href="products.php" class="btn btn-primary mt-3">
-                                    <i class="fas fa-shopping-bag me-2"></i>Browse Products
+                                <div class="empty-illustration">
+                                    <div class="empty-glow"></div>
+                                    <i class="fas fa-shopping-bag"></i>
+                                    <span class="empty-plus">+</span>
+                                </div>
+
+                                <h4 class="empty-title">No Orders Yet</h4>
+                                <p class="empty-subtitle">
+                                    Browse our catalog and place your first order — it'll appear here.
+                                </p>
+
+                                <a href="products.php" class="empty-cta">
+                                    <span>Browse Products</span>
+                                    <i class="fas fa-arrow-right"></i>
                                 </a>
                             </div>
                         <?php else: ?>
@@ -335,7 +344,7 @@ try {
                                                 </span>
                                             </td>
                                             <td class="text-center">
-                                                <a href="order-details.php?id=<?php echo $order['order_id']; ?>" 
+                                                <a href="order-details.php?id=<?php echo $order['order_id']; ?>"
                                                    class="btn-action btn-view" title="View Details">
                                                     <i class="fas fa-eye"></i>
                                                 </a>
@@ -671,23 +680,156 @@ try {
 .btn-view { background: rgba(107, 70, 193, 0.1); color: #6B46C1; }
 .btn-view:hover { background: #6B46C1; color: #fff; transform: scale(1.05); }
 
-/* Empty State */
+/* ============================================================
+   EMPTY STATE — modern redesign
+   ============================================================ */
 .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     text-align: center;
-    padding: 60px 20px;
-    color: #718096;
+    padding: 72px 24px 80px;
+    background:
+        radial-gradient(circle at 50% 0%, rgba(107, 70, 193, 0.06), transparent 55%),
+        linear-gradient(180deg, #FFFFFF 0%, #FAFBFD 100%);
 }
 
-.empty-state i {
-    font-size: 4rem;
-    margin-bottom: 16px;
-    opacity: 0.3;
+/* Floating illustration with soft glow */
+.empty-illustration {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.empty-illustration .empty-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(107, 70, 193, 0.25), transparent 65%);
+    filter: blur(6px);
+    animation: empty-pulse 3.5s ease-in-out infinite;
+}
+
+.empty-illustration > i {
+    position: relative;
+    z-index: 2;
+    font-size: 3.5rem;
     color: #6B46C1;
-    display: block;
+    opacity: 0.85;
+    filter: drop-shadow(0 10px 20px rgba(107, 70, 193, 0.25));
+    animation: empty-float 4s ease-in-out infinite;
 }
 
-.empty-state h5 { color: #4A5568; font-weight: 700; margin-bottom: 8px; }
-.empty-state p { margin: 0; font-size: 0.9rem; }
+.empty-illustration .empty-plus {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    z-index: 3;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #ED8936, #DD6B20);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 16px rgba(237, 137, 54, 0.45);
+    animation: empty-bob 2.5s ease-in-out infinite;
+}
+
+@keyframes empty-float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
+}
+
+@keyframes empty-pulse {
+    0%, 100% { opacity: 0.7; transform: scale(1); }
+    50%      { opacity: 1;   transform: scale(1.08); }
+}
+
+@keyframes empty-bob {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50%      { transform: translateY(-3px) rotate(8deg); }
+}
+
+/* Text */
+.empty-title {
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: #1A202C;
+    margin-bottom: 8px;
+    letter-spacing: -0.01em;
+}
+
+.empty-subtitle {
+    color: #718096;
+    font-size: 0.95rem;
+    max-width: 380px;
+    line-height: 1.55;
+    margin: 0 0 26px;
+}
+
+/* Modern pill CTA with icon and hover arrow */
+.empty-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #fff;
+    text-decoration: none;
+    background: linear-gradient(135deg, #6B46C1 0%, #553C9A 100%);
+    box-shadow:
+        0 8px 22px rgba(107, 70, 193, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+    position: relative;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.empty-cta::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), transparent 55%);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+
+.empty-cta:hover {
+    transform: translateY(-3px);
+    box-shadow:
+        0 12px 30px rgba(107, 70, 193, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.empty-cta:hover::before { opacity: 1; }
+
+.empty-cta:active {
+    transform: translateY(-1px);
+}
+
+.empty-cta i {
+    font-size: 0.9rem;
+    transition: transform 0.25s ease;
+    opacity: 0.9;
+}
+
+.empty-cta:hover i {
+    transform: translateX(4px);
+    opacity: 1;
+}
 
 /* User badge */
 .user-badge {
@@ -715,6 +857,12 @@ try {
     .stat-card { padding: 20px; }
     .stat-icon { width: 50px; height: 50px; font-size: 1.25rem; }
     .stat-value { font-size: 1.25rem; }
+
+    .empty-state { padding: 56px 20px 64px; }
+    .empty-illustration { width: 100px; height: 100px; margin-bottom: 22px; }
+    .empty-illustration > i { font-size: 3rem; }
+    .empty-title { font-size: 1.2rem; }
+    .empty-cta { padding: 12px 22px; font-size: 0.9rem; }
 }
 </style>
 
@@ -726,76 +874,70 @@ try {
    ============================================ */
 (function() {
     'use strict';
-    
+
     function initSidebar() {
         const sidebar = document.getElementById('sidebar');
         const overlay = document.getElementById('sidebarOverlay');
         const collapseBtn = document.getElementById('sidebarCollapseBtn');
         const desktopToggle = document.getElementById('sidebarDesktopToggle');
         const mobileToggles = document.querySelectorAll('.sidebar-toggle');
-        
+
         console.log('🔧 Client Dashboard: Sidebar init', {
             sidebar: !!sidebar,
             collapseBtn: !!collapseBtn,
             desktopToggle: !!desktopToggle
         });
-        
+
         if (!sidebar) {
             console.error('❌ No #sidebar found');
             return;
         }
-        
+
         // Restore saved state
         if (localStorage.getItem('cyberSidebarCollapsed') === '1' && window.innerWidth >= 992) {
             sidebar.classList.add('collapsed');
             document.body.classList.add('sidebar-collapsed');
         }
-        
+
         function toggle() {
             if (window.innerWidth < 992) return;
-            
+
             sidebar.classList.toggle('collapsed');
             document.body.classList.toggle('sidebar-collapsed');
-            
+
             const isNowCollapsed = sidebar.classList.contains('collapsed');
             localStorage.setItem('cyberSidebarCollapsed', isNowCollapsed ? '1' : '0');
-            
+
             setTimeout(function() {
                 window.dispatchEvent(new Event('resize'));
             }, 350);
-            
+
             console.log('🔄 Sidebar:', isNowCollapsed ? 'COLLAPSED' : 'EXPANDED');
         }
-        
-        // Wire collapse button (bottom of sidebar)
+
         if (collapseBtn) {
             collapseBtn.addEventListener('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
                 toggle();
             });
-            console.log('✅ Collapse button wired');
         }
-        
-        // Wire desktop toggle (top navbar)
+
         if (desktopToggle) {
             desktopToggle.addEventListener('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
                 toggle();
             });
-            console.log('✅ Desktop toggle wired');
         }
-        
-        // Ctrl+B
+
         document.addEventListener('keydown', function(e) {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
                 e.preventDefault();
                 toggle();
             }
         });
-        
-        // Mobile toggle
+
         mobileToggles.forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.preventDefault();
@@ -804,16 +946,14 @@ try {
                 if (overlay) overlay.classList.toggle('show');
             });
         });
-        
-        // Overlay close
+
         if (overlay) {
             overlay.addEventListener('click', function() {
                 sidebar.classList.remove('show');
                 overlay.classList.remove('show');
             });
         }
-        
-        // Close mobile sidebar on nav click
+
         sidebar.querySelectorAll('.nav-link:not(.section-toggle)').forEach(function(link) {
             link.addEventListener('click', function() {
                 if (window.innerWidth < 992) {
@@ -822,10 +962,10 @@ try {
                 }
             });
         });
-        
+
         console.log('🎉 Sidebar ready!');
     }
-    
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initSidebar);
     } else {

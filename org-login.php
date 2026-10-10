@@ -77,6 +77,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $_SESSION['org_phone'] = $found_org['phone'] ?? '';
         $_SESSION['org_email'] = $found_org['email'] ?? '';
         $_SESSION['org_tin'] = $found_org['tin'] ?? '';
+        $_SESSION['org_logo'] = $found_org['logo'] ?? null;   
+        $_SESSION['org_website'] = $found_org['website'] ?? '';
         
         if ($found_user['role'] == 'admin') {
             header('Location: admin/dashboard.php');

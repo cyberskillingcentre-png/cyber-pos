@@ -8,7 +8,7 @@ $order_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
 if ($order_id <= 0) {
     set_alert('danger', 'Invalid order ID');
-    header('Location: Client_Orders');
+    header('Location: Client_orders.php');
     exit;
 }
 
@@ -18,45 +18,46 @@ if ($order_id <= 0) {
 $order = null;
 try {
     $stmt = $conn->prepare("
-        SELECT co.*, 
-               u.full_name as client_name, 
-               u.email as client_email,
-               u.phone as client_phone,
-               cp.company_name, 
+        SELECT co.*,
+               u.full_name  AS client_name,
+               u.email      AS client_email,
+               u.phone      AS client_phone,
+               cp.company_name,
                cp.billing_address,
                s.store_name,
-               proc.full_name as processed_by_name
+               proc.full_name AS processed_by_name,
+               proc.role      AS processed_by_role
         FROM client_orders co
-        LEFT JOIN users u ON co.client_id = u.user_id
-        LEFT JOIN client_profiles cp ON u.user_id = cp.user_id
-        LEFT JOIN stores s ON co.store_id = s.store_id
-        LEFT JOIN users proc ON co.processed_by = proc.user_id
+        LEFT JOIN users u            ON co.client_id    = u.user_id
+        LEFT JOIN client_profiles cp ON u.user_id       = cp.user_id
+        LEFT JOIN stores s           ON co.store_id     = s.store_id
+        LEFT JOIN users proc         ON co.processed_by = proc.user_id
         WHERE co.order_id = ?
     ");
     $stmt->execute([$order_id]);
     $order = $stmt->fetch(PDO::FETCH_ASSOC);
-    
+
     if (!$order) {
         set_alert('danger', 'Order not found');
-        header('Location: Client_Orders');
+        header('Location: client_orders.php');
         exit;
     }
 } catch(PDOException $e) {
     set_alert('danger', 'Error loading order: ' . $e->getMessage());
-    header('Location: Client_Orders');
+    header('Location: client_orders.php');
     exit;
 }
 
 // ============================================
-// SAFE VALUE EXTRACTION (prevents undefined key warnings)
+// SAFE VALUES
 // ============================================
-$subtotal       = floatval($order['subtotal'] ?? 0);
+$subtotal        = floatval($order['subtotal'] ?? 0);
 $discount_amount = floatval($order['discount_amount'] ?? 0);
-$tax_amount     = floatval($order['tax_amount'] ?? 0);
-$grand_total    = floatval($order['grand_total'] ?? 0);
-$amount_paid    = floatval($order['amount_paid'] ?? 0);
-$amount_due     = floatval($order['amount_due'] ?? ($grand_total - $amount_paid));
-$balance        = max(0, $grand_total - $amount_paid);
+$tax_amount      = floatval($order['tax_amount'] ?? 0);
+$grand_total     = floatval($order['grand_total'] ?? 0);
+$amount_paid     = floatval($order['amount_paid'] ?? 0);
+$amount_due      = floatval($order['amount_due'] ?? ($grand_total - $amount_paid));
+$balance         = max(0, $grand_total - $amount_paid);
 
 // ============================================
 // GET ORDER ITEMS
@@ -68,11 +69,30 @@ try {
         FROM client_order_items coi
         LEFT JOIN products p ON coi.product_id = p.product_id
         WHERE coi.order_id = ?
+        ORDER BY coi.order_item_id ASC
     ");
     $stmt->execute([$order_id]);
     $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch(PDOException $e) {
     $items = [];
+}
+
+// ============================================
+// GET PAYMENT HISTORY
+// ============================================
+$payments = [];
+try {
+    $stmt = $conn->prepare("
+        SELECT cp.*, u.full_name AS recorded_by_name
+        FROM client_payments cp
+        LEFT JOIN users u ON cp.recorded_by = u.user_id
+        WHERE cp.order_id = ?
+        ORDER BY cp.created_at DESC
+    ");
+    $stmt->execute([$order_id]);
+    $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch(PDOException $e) {
+    $payments = [];
 }
 
 $alert = get_alert();
@@ -82,32 +102,31 @@ $alert = get_alert();
 <?php include '../includes/admin_sidebar.php'; ?>
 
 <div class="main-content">
-    <!-- Top Navbar -->
     <div class="top-navbar">
         <div class="d-flex justify-content-between align-items-center w-100">
             <div class="d-flex align-items-center">
                 <button class="btn btn-link d-lg-none sidebar-toggle me-2">
                     <i class="fas fa-bars"></i>
                 </button>
-                
-                <button type="button" class="btn btn-link sidebar-desktop-toggle me-2" 
+
+                <button type="button" class="btn btn-link sidebar-desktop-toggle me-2"
                         id="sidebarDesktopToggle" title="Toggle Sidebar (Ctrl+B)">
                     <i class="fas fa-bars"></i>
                 </button>
-                
+
                 <h5 class="mb-0">
                     <i class="fas fa-file-invoice me-2" style="color: var(--cyber-orange);"></i>
                     Order: <?php echo htmlspecialchars($order['order_number']); ?>
                 </h5>
             </div>
             <div class="d-flex align-items-center gap-3">
-                <a href="Client_Orders.php" class="btn btn-sm btn-secondary">
+                <a href="Client_orders.php" class="btn btn-sm btn-secondary">
                     <i class="fas fa-arrow-left me-1"></i>Back to Orders
                 </a>
             </div>
         </div>
     </div>
-    
+
     <div class="content-area">
         <?php if ($alert): ?>
         <div class="alert alert-<?php echo $alert['type']; ?> alert-dismissible fade show">
@@ -116,12 +135,11 @@ $alert = get_alert();
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
         <?php endif; ?>
-        
+
         <div class="row g-4">
-            <!-- LEFT COLUMN: Order Items -->
+            <!-- LEFT COLUMN -->
             <div class="col-lg-8">
-                
-                <!-- Order Items Card -->
+
                 <div class="card cyber-card mb-4">
                     <div class="card-header">
                         <i class="fas fa-box me-2"></i>Order Items
@@ -150,18 +168,10 @@ $alert = get_alert();
                                     <tbody>
                                         <?php foreach ($items as $item): ?>
                                         <tr>
-                                            <td>
-                                                <strong><?php echo htmlspecialchars($item['product_name']); ?></strong>
-                                            </td>
-                                            <td>
-                                                <code><?php echo htmlspecialchars($item['product_code'] ?? 'N/A'); ?></code>
-                                            </td>
-                                            <td class="text-center">
-                                                <span class="badge bg-primary"><?php echo intval($item['quantity']); ?></span>
-                                            </td>
-                                            <td class="text-end">
-                                                UGX <?php echo number_format(floatval($item['unit_price']), 0); ?>
-                                            </td>
+                                            <td><strong><?php echo htmlspecialchars($item['product_name']); ?></strong></td>
+                                            <td><code><?php echo htmlspecialchars($item['product_code'] ?? 'N/A'); ?></code></td>
+                                            <td class="text-center"><span class="badge bg-primary"><?php echo intval($item['quantity']); ?></span></td>
+                                            <td class="text-end">UGX <?php echo number_format(floatval($item['unit_price']), 0); ?></td>
                                             <td class="text-end">
                                                 <?php if (floatval($item['discount'] ?? 0) > 0): ?>
                                                     <span class="text-success">- UGX <?php echo number_format(floatval($item['discount']), 0); ?></span>
@@ -169,9 +179,7 @@ $alert = get_alert();
                                                     <span class="text-muted">—</span>
                                                 <?php endif; ?>
                                             </td>
-                                            <td class="text-end">
-                                                <strong>UGX <?php echo number_format(floatval($item['total_price']), 0); ?></strong>
-                                            </td>
+                                            <td class="text-end"><strong>UGX <?php echo number_format(floatval($item['total_price']), 0); ?></strong></td>
                                         </tr>
                                         <?php endforeach; ?>
                                     </tbody>
@@ -212,10 +220,66 @@ $alert = get_alert();
                         <?php endif; ?>
                     </div>
                 </div>
-                
-                <!-- Order Notes -->
+
+                <!-- PAYMENT HISTORY -->
+                <?php if (!empty($payments)): ?>
+                <div class="card cyber-card mb-4">
+                    <div class="card-header">
+                        <i class="fas fa-history me-2"></i>Payment History
+                        <span class="badge bg-success ms-auto"><?php echo count($payments); ?> payment(s)</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table cyber-table mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Amount</th>
+                                        <th>Method</th>
+                                        <th>Reference</th>
+                                        <th>Recorded By</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($payments as $p): ?>
+                                    <tr>
+                                        <td>
+                                            <div class="date-cell">
+                                                <span class="date"><?php echo date('M d, Y', strtotime($p['payment_date'])); ?></span>
+                                                <span class="time"><?php echo date('H:i', strtotime($p['created_at'])); ?></span>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <strong class="text-success">
+                                                UGX <?php echo number_format(floatval($p['payment_amount']), 0); ?>
+                                            </strong>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">
+                                                <?php echo ucwords(str_replace('_', ' ', $p['payment_method'])); ?>
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <code><?php echo htmlspecialchars($p['reference_number'] ?? '—'); ?></code>
+                                        </td>
+                                        <td><?php echo htmlspecialchars($p['recorded_by_name'] ?? '—'); ?></td>
+                                        <td>
+                                            <small class="text-muted">
+                                                <?php echo htmlspecialchars($p['notes'] ?? '—'); ?>
+                                            </small>
+                                        </td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <?php if (!empty($order['notes'])): ?>
-                <div class="card cyber-card">
+                <div class="card cyber-card mb-4">
                     <div class="card-header">
                         <i class="fas fa-sticky-note me-2"></i>Order Notes
                     </div>
@@ -224,10 +288,9 @@ $alert = get_alert();
                     </div>
                 </div>
                 <?php endif; ?>
-                
-                <!-- Delivery Address -->
+
                 <?php if (!empty($order['delivery_address'])): ?>
-                <div class="card cyber-card mt-4">
+                <div class="card cyber-card">
                     <div class="card-header">
                         <i class="fas fa-map-marker-alt me-2"></i>Delivery Address
                     </div>
@@ -237,28 +300,26 @@ $alert = get_alert();
                 </div>
                 <?php endif; ?>
             </div>
-            
-            <!-- RIGHT COLUMN: Status, Client, Actions -->
+
+            <!-- RIGHT COLUMN -->
             <div class="col-lg-4">
-                
-                <!-- Order Status Card -->
+
                 <div class="card cyber-card mb-4">
                     <div class="card-header">
                         <i class="fas fa-info-circle me-2"></i>Order Status
                     </div>
                     <div class="card-body">
-                        <!-- Order Status -->
                         <div class="status-block mb-3">
                             <div class="status-label">Order Status</div>
                             <?php
                             $o_badge = match($order['order_status'] ?? 'pending') {
-                                'delivered' => 'status-delivered',
-                                'cancelled' => 'status-cancelled',
-                                'shipped'   => 'status-shipped',
-                                'ready'     => 'status-ready',
+                                'delivered'  => 'status-delivered',
+                                'cancelled'  => 'status-cancelled',
+                                'shipped'    => 'status-shipped',
+                                'ready'      => 'status-ready',
                                 'processing' => 'status-processing',
-                                'confirmed' => 'status-confirmed',
-                                default     => 'status-pending'
+                                'confirmed'  => 'status-confirmed',
+                                default      => 'status-pending'
                             };
                             ?>
                             <span class="status-badge-lg <?php echo $o_badge; ?>">
@@ -266,8 +327,7 @@ $alert = get_alert();
                                 <?php echo ucfirst($order['order_status'] ?? 'Pending'); ?>
                             </span>
                         </div>
-                        
-                        <!-- Payment Status -->
+
                         <div class="status-block mb-3">
                             <div class="status-label">Payment Status</div>
                             <?php
@@ -282,8 +342,7 @@ $alert = get_alert();
                                 <?php echo ucfirst($order['payment_status'] ?? 'Pending'); ?>
                             </span>
                         </div>
-                        
-                        <!-- Payment Method -->
+
                         <div class="status-block mb-3">
                             <div class="status-label">Payment Method</div>
                             <div class="status-value">
@@ -291,8 +350,25 @@ $alert = get_alert();
                                 <?php echo ucwords(str_replace('_', ' ', $order['payment_method'] ?? 'N/A')); ?>
                             </div>
                         </div>
-                        
-                        <!-- Amount Summary -->
+
+                        <div class="status-block mb-3">
+                            <div class="status-label">Processed / Confirmed By</div>
+                            <div class="status-value">
+                                <?php if (!empty($order['processed_by_name'])): ?>
+                                    <i class="fas fa-user-check me-1" style="color: var(--cyber-green);"></i>
+                                    <?php echo htmlspecialchars($order['processed_by_name']); ?>
+                                    <?php if (!empty($order['processed_by_role'])): ?>
+                                        <span class="badge bg-secondary ms-2" style="font-size: 0.65rem;">
+                                            <?php echo htmlspecialchars(ucfirst($order['processed_by_role'])); ?>
+                                        </span>
+                                    <?php endif; ?>
+                                <?php else: ?>
+                                    <i class="fas fa-hourglass-half me-1 text-muted"></i>
+                                    <span class="text-muted fst-italic">Not yet processed</span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+
                         <div class="amount-summary">
                             <div class="d-flex justify-content-between mb-2">
                                 <span>Total:</span>
@@ -311,8 +387,7 @@ $alert = get_alert();
                         </div>
                     </div>
                 </div>
-                
-                <!-- Client Information -->
+
                 <div class="card cyber-card mb-4">
                     <div class="card-header">
                         <i class="fas fa-user me-2"></i>Client Information
@@ -322,14 +397,12 @@ $alert = get_alert();
                             <div class="info-label">Name</div>
                             <div class="info-value"><?php echo htmlspecialchars($order['client_name'] ?? 'N/A'); ?></div>
                         </div>
-                        
                         <?php if (!empty($order['company_name'])): ?>
                         <div class="info-item">
                             <div class="info-label">Company</div>
                             <div class="info-value"><?php echo htmlspecialchars($order['company_name']); ?></div>
                         </div>
                         <?php endif; ?>
-                        
                         <?php if (!empty($order['client_email'])): ?>
                         <div class="info-item">
                             <div class="info-label">Email</div>
@@ -340,7 +413,6 @@ $alert = get_alert();
                             </div>
                         </div>
                         <?php endif; ?>
-                        
                         <?php if (!empty($order['client_phone'])): ?>
                         <div class="info-item">
                             <div class="info-label">Phone</div>
@@ -351,7 +423,6 @@ $alert = get_alert();
                             </div>
                         </div>
                         <?php endif; ?>
-                        
                         <?php if (!empty($order['billing_address'])): ?>
                         <div class="info-item">
                             <div class="info-label">Billing Address</div>
@@ -360,8 +431,7 @@ $alert = get_alert();
                         <?php endif; ?>
                     </div>
                 </div>
-                
-                <!-- Order Details -->
+
                 <div class="card cyber-card mb-4">
                     <div class="card-header">
                         <i class="fas fa-info-circle me-2"></i>Order Details
@@ -369,64 +439,61 @@ $alert = get_alert();
                     <div class="card-body">
                         <div class="info-item">
                             <div class="info-label">Order Number</div>
-                            <div class="info-value">
-                                <code><?php echo htmlspecialchars($order['order_number']); ?></code>
-                            </div>
+                            <div class="info-value"><code><?php echo htmlspecialchars($order['order_number']); ?></code></div>
                         </div>
-                        
                         <div class="info-item">
                             <div class="info-label">Order Date</div>
-                            <div class="info-value">
-                                <?php echo date('M d, Y H:i', strtotime($order['order_date'])); ?>
-                            </div>
+                            <div class="info-value"><?php echo date('M d, Y H:i', strtotime($order['order_date'])); ?></div>
                         </div>
-                        
                         <div class="info-item">
                             <div class="info-label">Store</div>
-                            <div class="info-value">
-                                <?php echo htmlspecialchars($order['store_name'] ?? 'Not assigned'); ?>
-                            </div>
+                            <div class="info-value"><?php echo htmlspecialchars($order['store_name'] ?? 'Not assigned'); ?></div>
                         </div>
-                        
-                        <?php if (!empty($order['processed_by_name'])): ?>
+                        <?php if (!empty($order['processed_at'])): ?>
                         <div class="info-item">
-                            <div class="info-label">Processed By</div>
-                            <div class="info-value"><?php echo htmlspecialchars($order['processed_by_name']); ?></div>
+                            <div class="info-label">Processed At</div>
+                            <div class="info-value"><?php echo date('M d, Y H:i', strtotime($order['processed_at'])); ?></div>
                         </div>
                         <?php endif; ?>
                     </div>
                 </div>
-                
-                <!-- Quick Actions -->
+
+                <!-- QUICK ACTIONS -->
                 <div class="card cyber-card">
                     <div class="card-header">
                         <i class="fas fa-cogs me-2"></i>Quick Actions
                     </div>
                     <div class="card-body d-grid gap-2">
                         <?php if (($order['order_status'] ?? '') == 'pending'): ?>
-                        <a href="Confirm_Order.php?id=<?php echo $order_id; ?>" class="btn btn-success">
+                        <a href="confirm_order.php?id=<?php echo $order_id; ?>" class="btn btn-success">
                             <i class="fas fa-check-circle me-2"></i>Confirm Order
                         </a>
                         <?php endif; ?>
-                        
+
+                        <?php if ($balance > 0 && ($order['order_status'] ?? '') !== 'cancelled'): ?>
+                        <a href="record_client_payment.php?id=<?php echo $order_id; ?>" class="btn btn-warning">
+                            <i class="fas fa-money-bill-wave me-2"></i>Record Payment (UGX <?php echo number_format($balance, 0); ?>)
+                        </a>
+                        <?php endif; ?>
+
                         <?php if (in_array($order['order_status'] ?? '', ['confirmed', 'processing', 'ready', 'shipped'])): ?>
-                        <a href="Update_Status.php?id=<?php echo $order_id; ?>" class="btn btn-primary">
+                        <a href="update_status.php?id=<?php echo $order_id; ?>" class="btn btn-primary">
                             <i class="fas fa-edit me-2"></i>Update Status
                         </a>
                         <?php endif; ?>
-                        
-                        <a href="Print_Invoice.php?id=<?php echo $order_id; ?>" target="_blank" class="btn btn-info">
+
+                        <a href="print_invoice.php?id=<?php echo $order_id; ?>" target="_blank" class="btn btn-info">
                             <i class="fas fa-print me-2"></i>Print Invoice
                         </a>
-                        
+
                         <?php if (!empty($order['client_email'])): ?>
                         <a href="mailto:<?php echo htmlspecialchars($order['client_email']); ?>" class="btn btn-secondary">
                             <i class="fas fa-envelope me-2"></i>Email Client
                         </a>
                         <?php endif; ?>
-                        
+
                         <?php if (($order['order_status'] ?? '') == 'pending'): ?>
-                        <button onclick="if(confirm('Cancel this order?')) location.href='cancel-order.php?id=<?php echo $order_id; ?>'" 
+                        <button onclick="if(confirm('Cancel this order?')) location.href='cancel_order.php?id=<?php echo $order_id; ?>'"
                                 class="btn btn-danger">
                             <i class="fas fa-times-circle me-2"></i>Cancel Order
                         </button>
@@ -438,7 +505,7 @@ $alert = get_alert();
     </div>
 </div>
 
-<!-- Page Styles -->
+<!-- Styles -->
 <style>
 .cyber-card {
     background: #fff;
@@ -460,7 +527,6 @@ $alert = get_alert();
 
 .cyber-card .card-header i { color: #ED8936; }
 
-/* Status blocks */
 .status-block {
     padding: 12px;
     background: #F7FAFC;
@@ -494,25 +560,20 @@ $alert = get_alert();
     text-transform: capitalize;
 }
 
-.status-badge-lg i {
-    font-size: 0.6rem;
-}
+.status-badge-lg i { font-size: 0.6rem; }
 
-/* Order status colors */
-.status-delivered { background: rgba(72, 187, 120, 0.15); color: #2F855A; }
-.status-cancelled { background: rgba(229, 62, 62, 0.15); color: #C53030; }
-.status-shipped { background: rgba(0, 181, 216, 0.15); color: #0987A0; }
-.status-ready { background: rgba(107, 70, 193, 0.15); color: #553C9A; }
+.status-delivered  { background: rgba(72, 187, 120, 0.15); color: #2F855A; }
+.status-cancelled  { background: rgba(229, 62, 62, 0.15); color: #C53030; }
+.status-shipped    { background: rgba(0, 181, 216, 0.15); color: #0987A0; }
+.status-ready      { background: rgba(107, 70, 193, 0.15); color: #553C9A; }
 .status-processing { background: rgba(237, 137, 54, 0.15); color: #C05621; }
-.status-confirmed { background: rgba(66, 153, 225, 0.15); color: #2B6CB0; }
-.status-pending { background: rgba(237, 137, 54, 0.15); color: #C05621; }
+.status-confirmed  { background: rgba(66, 153, 225, 0.15); color: #2B6CB0; }
+.status-pending    { background: rgba(237, 137, 54, 0.15); color: #C05621; }
 
-/* Payment status colors */
-.payment-paid { background: rgba(72, 187, 120, 0.15); color: #2F855A; }
+.payment-paid    { background: rgba(72, 187, 120, 0.15); color: #2F855A; }
 .payment-partial { background: rgba(237, 137, 54, 0.15); color: #C05621; }
-.payment-unpaid { background: rgba(229, 62, 62, 0.15); color: #C53030; }
+.payment-unpaid  { background: rgba(229, 62, 62, 0.15); color: #C53030; }
 
-/* Amount summary */
 .amount-summary {
     padding: 12px;
     background: #F7FAFC;
@@ -522,7 +583,6 @@ $alert = get_alert();
     margin-top: 12px;
 }
 
-/* Info items */
 .info-item {
     padding: 8px 0;
     border-bottom: 1px dashed #E2E8F0;
@@ -545,16 +605,9 @@ $alert = get_alert();
     font-weight: 500;
 }
 
-.info-value a {
-    color: #6B46C1;
-    text-decoration: none;
-}
+.info-value a { color: #6B46C1; text-decoration: none; }
+.info-value a:hover { text-decoration: underline; }
 
-.info-value a:hover {
-    text-decoration: underline;
-}
-
-/* Cyber table */
 .cyber-table {
     width: 100%;
     border-collapse: collapse;
@@ -589,7 +642,22 @@ $alert = get_alert();
     border-radius: 4px;
 }
 
-/* Empty state */
+.date-cell {
+    display: flex;
+    flex-direction: column;
+}
+
+.date-cell .date {
+    font-weight: 600;
+    color: #1A202C;
+    font-size: 0.85rem;
+}
+
+.date-cell .time {
+    font-size: 0.75rem;
+    color: #718096;
+}
+
 .empty-state {
     text-align: center;
     padding: 60px 20px;

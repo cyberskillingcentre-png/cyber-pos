@@ -104,7 +104,7 @@ $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <table class="totals">
         <tr>
             <td><strong>Subtotal:</strong></td>
-            <td class="text-right">UGX <?php echo number_format($order['total_amount'], 0); ?></td>
+            <td class="text-right">UGX <?php echo number_format($order['grand_total'], 0); ?></td>
         </tr>
         <?php if ($order['discount_amount'] > 0): ?>
         <tr>

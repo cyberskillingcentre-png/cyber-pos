@@ -2,647 +2,334 @@
 require_once '../config/config.php';
 require_login();
 
+// If admin, redirect to admin version
+if (is_admin()) {
+    header('Location: ../admin/receipt.php?id=' . intval($_GET['id'] ?? 0));
+    exit;
+}
+
+$page_title = "Receipt";
 $sale_id = intval($_GET['id'] ?? 0);
 
 if ($sale_id <= 0) {
     die('Invalid sale ID');
 }
 
-// ✅ IDOR-protected fetch
-$sale = get_sale_with_access_check($conn, $sale_id);
-
-if (!$sale) {
-    // Don't reveal whether it exists
-    die('Receipt not found or you do not have permission to view it');
-}
-
-// Fetch sale items
-$stmt = $conn->prepare("
-    SELECT si.*, p.product_name, p.product_code
-    FROM sale_items si
-    JOIN products p ON si.product_id = p.product_id
-    WHERE si.sale_id = ?
-    ORDER BY si.sale_item_id
-");
-$stmt->execute([$sale_id]);
-$items = $stmt->fetchAll();
-
-// Fetch settings (key/value style)
-$settings = [];
+// ============================================
+// FETCH SALE — with IDOR protection
+// ============================================
+$sale = null;
 try {
-    $stmt = $conn->query("SELECT setting_key, setting_value FROM system_settings");
-    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $settings[$row['setting_key']] = $row['setting_value'];
-    }
+    $stmt = $conn->prepare("
+        SELECT s.*, 
+               st.store_name, 
+               st.phone as store_phone,
+               st.location as store_location,
+               c.customer_name,
+               c.phone as customer_phone,
+               c.email as customer_email,
+               u.full_name as served_by_name
+        FROM sales s
+        LEFT JOIN stores st ON s.store_id = st.store_id
+        LEFT JOIN customers c ON s.customer_id = c.customer_id
+        LEFT JOIN users u ON s.served_by = u.user_id
+        WHERE s.sale_id = ? AND s.served_by = ?
+    ");
+    $stmt->execute([$sale_id, $_SESSION['user_id']]);
+    $sale = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$sale) die('Receipt not found or you do not have access to view it');
 } catch(PDOException $e) {
-    $settings = [];
+    die('Error: ' . $e->getMessage());
 }
 
-// Extract with defaults
-$company_name    = $settings['company_name'] ?? APP_NAME;
-$company_phone   = $settings['company_phone'] ?? ($sale['store_phone'] ?? '');
-$company_email   = $settings['company_email'] ?? '';
-$company_address = $settings['company_address'] ?? ($sale['store_location'] ?? '');
-$receipt_footer  = $settings['receipt_footer'] ?? 'Thank you for your business!';
+// ============================================
+// FETCH ITEMS
+// ============================================
+$items = [];
+try {
+    $stmt = $conn->prepare("
+        SELECT si.*, p.product_name, p.product_code
+        FROM sale_items si
+        JOIN products p ON si.product_id = p.product_id
+        WHERE si.sale_id = ?
+        ORDER BY si.sale_item_id ASC
+    ");
+    $stmt->execute([$sale_id]);
+    $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch(PDOException $e) {
+    $items = [];
+}
+
+// ============================================
+// FETCH ORG DETAILS
+// ============================================
+$org = [
+    'org_name' => $_SESSION['org_name'] ?? APP_NAME,
+    'address'  => $_SESSION['org_address'] ?? '',
+    'phone'    => $_SESSION['org_phone'] ?? '',
+    'email'    => $_SESSION['org_email'] ?? '',
+    'tin'      => $_SESSION['org_tin'] ?? '',
+    'website'  => $_SESSION['org_website'] ?? '',
+    'logo'     => $_SESSION['org_logo'] ?? ''
+];
+
+// Fallback: query master DB if session empty
+if (empty($org['address']) && !empty($_SESSION['org_id'])) {
+    try {
+        $master = get_master_connection();
+        $stmt = $master->prepare("
+            SELECT org_name, address, phone, email 
+            FROM organizations 
+            WHERE org_id = ?
+        ");
+        $stmt->execute([$_SESSION['org_id']]);
+        $db_org = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($db_org) {
+            $org['org_name'] = $db_org['org_name'] ?? $org['org_name'];
+            $org['address']  = $db_org['address'] ?? '';
+            $org['phone']    = $db_org['phone'] ?? '';
+            $org['email']    = $db_org['email'] ?? '';
+        }
+    } catch(Exception $e) {
+        error_log("Org fetch failed: " . $e->getMessage());
+    }
+}
+
+// Fallback to store info
+if (empty($org['phone']) && !empty($sale['store_phone'])) $org['phone'] = $sale['store_phone'];
+if (empty($org['address']) && !empty($sale['store_location'])) $org['address'] = $sale['store_location'];
+
+// ============================================
+// RECEIPT FOOTER
+// ============================================
+$receipt_footer = $_SESSION['receipt_footer'] ?? 'Thank you for your business!';
+
+try {
+    $stmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'receipt_footer'");
+    $stmt->execute();
+    $footer_db = $stmt->fetchColumn();
+    if ($footer_db) $receipt_footer = $footer_db;
+} catch(PDOException $e) {}
 
 $change = ($sale['amount_paid'] ?? 0) - ($sale['total_amount'] ?? 0);
+$is_autoprint = isset($_GET['print_only']) || isset($_GET['autoprint']);
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Receipt - <?php echo htmlspecialchars($sale['invoice_number']); ?></title>
-    
-    <!-- Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Courier New', monospace; background: #f0f0f0; padding: 20px; font-size: 12px; color: #000; line-height: 1.4; }
+        .receipt { width: 80mm; margin: 0 auto; background: #fff; padding: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border-radius: 4px; }
         
-        body {
-            font-family: 'Courier New', monospace;
-            background: #E2E8F0;
-            padding: 20px;
-            font-size: 12px;
-            color: #1A202C;
-        }
+        .receipt-header { text-align: center; padding-bottom: 10px; border-bottom: 2px dashed #000; margin-bottom: 10px; }
+        .org-logo { max-width: 140px; max-height: 60px; margin: 0 auto 6px; display: block; object-fit: contain; }
+        .org-name { font-size: 15px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; line-height: 1.2; }
+        .org-details { font-size: 10px; line-height: 1.5; color: #333; }
+        .org-details div { margin-bottom: 1px; }
+        .org-tin { font-weight: 700; margin-top: 3px; padding-top: 3px; border-top: 1px dotted #999; display: inline-block; }
+        .receipt-type { display: inline-block; padding: 2px 10px; font-size: 9px; font-weight: 700; border: 1px solid #000; border-radius: 10px; margin-top: 6px; letter-spacing: 1px; text-transform: uppercase; }
+        .receipt-type.credit { background: #000; color: #fff; }
         
-        .receipt-container {
-            max-width: 380px;
-            margin: 0 auto;
-            background: white;
-            padding: 24px 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-            border-radius: 8px;
-        }
+        .sale-info { margin-bottom: 10px; font-size: 11px; padding-bottom: 8px; border-bottom: 1px dotted #999; }
+        .info-row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
+        .info-row .label { font-weight: 700; }
+        .info-row .value { text-align: right; word-break: break-word; max-width: 60%; }
         
-        /* Header */
-        .receipt-header {
-            text-align: center;
-            border-bottom: 2px dashed #1A202C;
-            padding-bottom: 16px;
-            margin-bottom: 16px;
-        }
+        .items-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 10px; }
+        .items-table thead th { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 2px; text-align: left; font-weight: 700; font-size: 9px; text-transform: uppercase; }
+        .items-table thead th.right { text-align: right; }
+        .items-table thead th.center { text-align: center; }
+        .items-table tbody td { padding: 4px 2px; border-bottom: 1px dotted #ccc; vertical-align: top; font-size: 10px; }
+        .items-table tbody td.right { text-align: right; }
+        .items-table tbody td.center { text-align: center; }
+        .product-name { font-weight: 700; display: block; }
+        .product-code { font-size: 8px; color: #666; display: block; }
         
-        .receipt-header h1 {
-            font-size: 20px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            margin-bottom: 6px;
-            color: #6B46C1;
-        }
+        .totals { border-top: 2px dashed #000; padding-top: 8px; margin-bottom: 8px; }
+        .total-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 11px; }
+        .total-row.grand { border-top: 1px solid #000; border-bottom: 2px solid #000; padding: 6px 0; margin-top: 4px; font-size: 13px; font-weight: 900; }
+        .total-row.paid { color: #059669; }
+        .total-row.due { color: #dc2626; font-weight: 700; }
+        .total-row.change { color: #059669; background: #ecfdf5; padding: 4px 6px; border-radius: 3px; margin-top: 4px; font-weight: 700; font-size: 12px; }
         
-        .receipt-header .company-info {
-            font-size: 10px;
-            color: #4A5568;
-            line-height: 1.6;
-        }
+        .payment-info { background: #f5f5f5; border: 1px solid #ddd; border-radius: 3px; padding: 5px 8px; text-align: center; font-size: 10px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
         
-        .receipt-header .company-info div {
-            margin-bottom: 2px;
-        }
+        .barcode-wrap { text-align: center; padding: 6px 0; border-top: 1px solid #ddd; border-bottom: 1px solid #ddd; margin-bottom: 8px; }
+        .barcode-wrap svg { max-width: 100%; }
         
-        .receipt-header .company-info i {
-            color: #ED8936;
-            margin-right: 4px;
-        }
+        .receipt-footer { text-align: center; font-size: 10px; line-height: 1.5; padding-top: 8px; border-top: 2px dashed #000; }
+        .thank-you { font-size: 13px; font-weight: 900; margin-bottom: 5px; letter-spacing: 1px; }
+        .footer-message { font-weight: 700; margin-bottom: 6px; font-size: 10px; padding: 4px 6px; background: #f9f9f9; border-radius: 3px; }
+        .powered-by { margin-top: 8px; font-size: 8px; color: #999; padding-top: 5px; border-top: 1px solid #eee; }
         
-        .receipt-badge {
-            display: inline-block;
-            background: linear-gradient(135deg, #6B46C1, #553C9A);
-            color: white;
-            padding: 4px 14px;
-            border-radius: 12px;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 1.5px;
-            margin-top: 10px;
-        }
+        .action-buttons { max-width: 80mm; margin: 20px auto 0; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+        .action-btn { padding: 10px 18px; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; text-decoration: none; color: #fff; font-family: Arial, sans-serif; }
+        .btn-print { background: #10b981; }
+        .btn-pos { background: #6B46C1; }
+        .btn-close { background: #ef4444; }
         
-        /* Sale Info */
-        .sale-info {
-            margin-bottom: 16px;
-            font-size: 11px;
-            line-height: 1.8;
-        }
-        
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 3px 0;
-            gap: 12px;
-        }
-        
-        .info-row .label {
-            color: #718096;
-            font-weight: 600;
-            flex-shrink: 0;
-        }
-        
-        .info-row .value {
-            font-weight: 700;
-            color: #1A202C;
-            text-align: right;
-            word-break: break-word;
-        }
-        
-        /* Items Table */
-        .items-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 16px;
-            font-size: 11px;
-        }
-        
-        .items-table thead th {
-            border-top: 2px solid #1A202C;
-            border-bottom: 2px solid #1A202C;
-            padding: 8px 4px;
-            text-align: left;
-            font-weight: 700;
-            font-size: 10px;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-        }
-        
-        .items-table thead th.right {
-            text-align: right;
-        }
-        
-        .items-table tbody td {
-            padding: 8px 4px;
-            border-bottom: 1px dashed #CBD5E0;
-            vertical-align: top;
-        }
-        
-        .items-table tbody td.right {
-            text-align: right;
-        }
-        
-        .items-table tbody td.product-name {
-            font-weight: 600;
-            max-width: 140px;
-            word-wrap: break-word;
-        }
-        
-        .items-table .product-code {
-            font-size: 9px;
-            color: #A0AEC0;
-            display: block;
-            margin-top: 2px;
-            font-weight: 500;
-        }
-        
-        /* Totals */
-        .totals-section {
-            border-top: 2px dashed #1A202C;
-            padding-top: 12px;
-            margin-bottom: 16px;
-        }
-        
-        .total-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 4px 0;
-            font-size: 11px;
-        }
-        
-        .total-row .label {
-            color: #4A5568;
-        }
-        
-        .total-row .value {
-            font-weight: 600;
-        }
-        
-        .total-row.grand-total {
-            border-top: 2px solid #1A202C;
-            border-bottom: 2px solid #1A202C;
-            padding: 10px 0;
-            margin: 8px 0;
-            font-size: 14px;
-            font-weight: 800;
-            color: #6B46C1;
-        }
-        
-        .total-row.grand-total .label {
-            color: #1A202C;
-            letter-spacing: 1px;
-        }
-        
-        .total-row.change-row {
-            background: rgba(72, 187, 120, 0.1);
-            padding: 6px 8px;
-            border-radius: 4px;
-            margin-top: 6px;
-            font-weight: 700;
-            color: #2F855A;
-        }
-        
-        /* Payment Badge */
-        .payment-badge {
-            display: inline-block;
-            padding: 3px 10px;
-            border-radius: 10px;
-            font-size: 9px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .payment-badge.paid {
-            background: rgba(72, 187, 120, 0.15);
-            color: #2F855A;
-        }
-        
-        .payment-badge.partial {
-            background: rgba(237, 137, 54, 0.15);
-            color: #C05621;
-        }
-        
-        .payment-badge.unpaid {
-            background: rgba(229, 62, 62, 0.15);
-            color: #C53030;
-        }
-        
-        /* Barcode */
-        .barcode-container {
-            text-align: center;
-            margin: 16px 0;
-            padding: 12px 0;
-            border-top: 1px solid #E2E8F0;
-            border-bottom: 1px solid #E2E8F0;
-        }
-        
-        .barcode-container svg {
-            max-width: 100%;
-        }
-        
-        /* Footer */
-        .receipt-footer {
-            text-align: center;
-            border-top: 2px dashed #1A202C;
-            padding-top: 16px;
-            font-size: 10px;
-            color: #4A5568;
-            line-height: 1.6;
-        }
-        
-        .receipt-footer .thank-you {
-            font-size: 13px;
-            font-weight: 800;
-            color: #6B46C1;
-            margin-bottom: 8px;
-            letter-spacing: 1px;
-        }
-        
-        .receipt-footer .footer-message {
-            font-weight: 700;
-            color: #1A202C;
-            margin-bottom: 8px;
-            font-size: 11px;
-        }
-        
-        .receipt-footer .powered-by {
-            margin-top: 12px;
-            font-size: 9px;
-            color: #A0AEC0;
-            letter-spacing: 0.5px;
-        }
-        
-        /* Action Buttons */
-        .action-buttons {
-            max-width: 380px;
-            margin: 20px auto 0;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-        
-        .action-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 12px 20px;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            text-decoration: none;
-            font-family: 'Inter', Arial, sans-serif;
-            color: white;
-        }
-        
-        .action-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
-            color: white;
-        }
-        
-        .btn-print {
-            background: linear-gradient(135deg, #48BB78, #38A169);
-            box-shadow: 0 4px 12px rgba(72, 187, 120, 0.3);
-        }
-        
-        .btn-pos {
-            background: linear-gradient(135deg, #6B46C1, #553C9A);
-            box-shadow: 0 4px 12px rgba(107, 70, 193, 0.3);
-        }
-        
-        .btn-sales {
-            background: linear-gradient(135deg, #ED8936, #DD6B20);
-            box-shadow: 0 4px 12px rgba(237, 137, 54, 0.3);
-        }
-        
-        .btn-close {
-            background: linear-gradient(135deg, #E53E3E, #C53030);
-            box-shadow: 0 4px 12px rgba(229, 62, 62, 0.3);
-        }
-        
-        /* Print Styles */
         @media print {
-            body {
-                background: white;
-                padding: 0;
-                font-size: 11px;
-            }
-            
-            .receipt-container {
-                box-shadow: none;
-                border-radius: 0;
-                max-width: 100%;
-                padding: 8px;
-            }
-            
-            .action-buttons {
-                display: none !important;
-            }
-            
-            @page {
-                size: 80mm auto;
-                margin: 3mm;
-            }
+            body { background: #fff; padding: 0; font-size: 11px; }
+            .receipt { box-shadow: none; border-radius: 0; width: 100%; padding: 0; max-width: none; }
+            .action-buttons { display: none !important; }
+            @page { size: 80mm auto; margin: 2mm; }
         }
     </style>
 </head>
 <body>
-
-<!-- Receipt -->
-<div class="receipt-container">
     
-    <!-- Header -->
-    <div class="receipt-header">
-        <h1><?php echo htmlspecialchars($company_name); ?></h1>
+    <div class="receipt">
         
-        <div class="company-info">
-            <?php if (!empty($company_address)): ?>
-                <div><i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($company_address); ?></div>
+        <!-- HEADER -->
+        <div class="receipt-header">
+            <?php if (!empty($org['logo']) && file_exists('../' . $org['logo'])): ?>
+                <img src="../<?php echo htmlspecialchars($org['logo']); ?>" alt="Logo" class="org-logo">
             <?php endif; ?>
             
-            <?php if (!empty($company_phone)): ?>
-                <div><i class="fas fa-phone"></i> <?php echo htmlspecialchars($company_phone); ?></div>
-            <?php endif; ?>
+            <div class="org-name"><?php echo htmlspecialchars($org['org_name']); ?></div>
             
-            <?php if (!empty($company_email)): ?>
-                <div><i class="fas fa-envelope"></i> <?php echo htmlspecialchars($company_email); ?></div>
-            <?php endif; ?>
+            <div class="org-details">
+                <?php if (!empty($org['address'])): ?>
+                    <div><?php echo htmlspecialchars($org['address']); ?></div>
+                <?php endif; ?>
+                <?php if (!empty($org['phone'])): ?>
+                    <div>Tel: <?php echo htmlspecialchars($org['phone']); ?></div>
+                <?php endif; ?>
+                <?php if (!empty($org['email'])): ?>
+                    <div>Email: <?php echo htmlspecialchars($org['email']); ?></div>
+                <?php endif; ?>
+                <?php if (!empty($org['tin'])): ?>
+                    <div class="org-tin">TIN: <?php echo htmlspecialchars($org['tin']); ?></div>
+                <?php endif; ?>
+            </div>
+            
+            <div class="receipt-type <?php echo (($sale['sale_type'] ?? 'cash') === 'credit') ? 'credit' : ''; ?>">
+                <?php echo (($sale['sale_type'] ?? 'cash') === 'credit') ? 'CREDIT RECEIPT' : 'OFFICIAL RECEIPT'; ?>
+            </div>
         </div>
         
-        <div class="receipt-badge">
-            <?php if (($sale['sale_type'] ?? 'cash') == 'credit'): ?>
-                CREDIT RECEIPT
-            <?php else: ?>
-                OFFICIAL RECEIPT
+        <!-- SALE INFO -->
+        <div class="sale-info">
+            <div class="info-row"><span class="label">Invoice:</span><span class="value"><?php echo htmlspecialchars($sale['invoice_number']); ?></span></div>
+            <div class="info-row"><span class="label">Date:</span><span class="value"><?php echo date('d/m/Y H:i', strtotime($sale['sale_date'])); ?></span></div>
+            <?php if (!empty($sale['store_name'])): ?>
+            <div class="info-row"><span class="label">Store:</span><span class="value"><?php echo htmlspecialchars($sale['store_name']); ?></span></div>
             <?php endif; ?>
+            <div class="info-row"><span class="label">Customer:</span><span class="value"><?php echo htmlspecialchars($sale['customer_name'] ?? 'Walk-in'); ?></span></div>
+            <div class="info-row"><span class="label">Served By:</span><span class="value"><?php echo htmlspecialchars($sale['served_by_name'] ?? 'N/A'); ?></span></div>
         </div>
-    </div>
-    
-    <!-- Sale Info -->
-    <div class="sale-info">
-        <div class="info-row">
-            <span class="label">Invoice #:</span>
-            <span class="value"><?php echo htmlspecialchars($sale['invoice_number']); ?></span>
-        </div>
-        <div class="info-row">
-            <span class="label">Date:</span>
-            <span class="value"><?php echo date('d/m/Y H:i', strtotime($sale['sale_date'])); ?></span>
-        </div>
-        <?php if (!empty($sale['store_name'])): ?>
-        <div class="info-row">
-            <span class="label">Store:</span>
-            <span class="value"><?php echo htmlspecialchars($sale['store_name']); ?></span>
-        </div>
-        <?php endif; ?>
-        <div class="info-row">
-            <span class="label">Customer:</span>
-            <span class="value"><?php echo htmlspecialchars($sale['customer_name'] ?? 'Walk-in'); ?></span>
-        </div>
-        <div class="info-row">
-            <span class="label">Served By:</span>
-            <span class="value"><?php echo htmlspecialchars($sale['served_by_name'] ?? 'N/A'); ?></span>
-        </div>
-    </div>
-    
-    <!-- Items Table -->
-    <table class="items-table">
-        <thead>
-            <tr>
-                <th>Item</th>
-                <th class="right">Qty</th>
-                <th class="right">Price</th>
-                <th class="right">Total</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php if (count($items) > 0): ?>
+        
+        <!-- ITEMS -->
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th class="center">Qty</th>
+                    <th class="right">Price</th>
+                    <th class="right">Total</th>
+                </tr>
+            </thead>
+            <tbody>
                 <?php foreach ($items as $item): ?>
                 <tr>
-                    <td class="product-name">
-                        <?php echo htmlspecialchars($item['product_name']); ?>
+                    <td>
+                        <span class="product-name"><?php echo htmlspecialchars($item['product_name']); ?></span>
                         <?php if (!empty($item['product_code'])): ?>
                             <span class="product-code"><?php echo htmlspecialchars($item['product_code']); ?></span>
                         <?php endif; ?>
                     </td>
-                    <td class="right"><?php echo number_format($item['quantity']); ?></td>
-                    <td class="right"><?php echo number_format($item['unit_price'], 0); ?></td>
-                    <td class="right"><?php echo number_format($item['total_price'], 0); ?></td>
+                    <td class="center"><?php echo intval($item['quantity']); ?></td>
+                    <td class="right"><?php echo number_format(floatval($item['unit_price']), 0); ?></td>
+                    <td class="right"><?php echo number_format(floatval($item['total_price']), 0); ?></td>
                 </tr>
                 <?php endforeach; ?>
-            <?php else: ?>
-                <tr>
-                    <td colspan="4" style="text-align: center; padding: 20px; color: #A0AEC0;">
-                        No items found
-                    </td>
-                </tr>
+            </tbody>
+        </table>
+        
+        <!-- TOTALS -->
+        <div class="totals">
+            <div class="total-row"><span>Subtotal:</span><span>UGX <?php echo number_format(floatval($sale['subtotal'] ?? 0), 0); ?></span></div>
+            <?php if (floatval($sale['tax_amount'] ?? 0) > 0): ?>
+            <div class="total-row"><span>Tax:</span><span>UGX <?php echo number_format(floatval($sale['tax_amount']), 0); ?></span></div>
             <?php endif; ?>
-        </tbody>
-    </table>
-    
-    <!-- Totals -->
-    <div class="totals-section">
-        <div class="total-row">
-            <span class="label">Subtotal</span>
-            <span class="value">UGX <?php echo number_format($sale['subtotal'], 0); ?></span>
+            <?php if (floatval($sale['discount_amount'] ?? 0) > 0): ?>
+            <div class="total-row"><span>Discount:</span><span>-UGX <?php echo number_format(floatval($sale['discount_amount']), 0); ?></span></div>
+            <?php endif; ?>
+            <div class="total-row grand"><span>TOTAL:</span><span>UGX <?php echo number_format(floatval($sale['total_amount'] ?? 0), 0); ?></span></div>
+            <div class="total-row paid"><span>Paid:</span><span>UGX <?php echo number_format(floatval($sale['amount_paid'] ?? 0), 0); ?></span></div>
+            <?php if (floatval($sale['amount_due'] ?? 0) > 0): ?>
+            <div class="total-row due"><span>Due:</span><span>UGX <?php echo number_format(floatval($sale['amount_due']), 0); ?></span></div>
+            <?php endif; ?>
+            <?php if ($change > 0): ?>
+            <div class="total-row change"><span>CHANGE:</span><span>UGX <?php echo number_format($change, 0); ?></span></div>
+            <?php endif; ?>
         </div>
         
-        <?php if (($sale['tax_amount'] ?? 0) > 0): ?>
-        <div class="total-row">
-            <span class="label">Tax</span>
-            <span class="value">UGX <?php echo number_format($sale['tax_amount'], 0); ?></span>
-        </div>
-        <?php endif; ?>
-        
-        <?php if (($sale['discount_amount'] ?? 0) > 0): ?>
-        <div class="total-row">
-            <span class="label">Discount</span>
-            <span class="value" style="color: #38A169;">- UGX <?php echo number_format($sale['discount_amount'], 0); ?></span>
-        </div>
-        <?php endif; ?>
-        
-        <div class="total-row grand-total">
-            <span class="label">TOTAL</span>
-            <span class="value">UGX <?php echo number_format($sale['total_amount'], 0); ?></span>
+        <!-- PAYMENT -->
+        <div class="payment-info">
+            Payment: <?php echo strtoupper(str_replace('_', ' ', $sale['payment_method'] ?? 'Cash')); ?>
+            <?php if (!empty($sale['transaction_id'])): ?>
+                <br><span style="font-weight: 400; text-transform: none;">Ref: <?php echo htmlspecialchars($sale['transaction_id']); ?></span>
+            <?php endif; ?>
         </div>
         
-        <div class="total-row">
-            <span class="label">Amount Paid</span>
-            <span class="value" style="color: #2F855A;">UGX <?php echo number_format($sale['amount_paid'] ?? 0, 0); ?></span>
+        <!-- BARCODE -->
+        <div class="barcode-wrap">
+            <svg id="barcode"></svg>
         </div>
         
-        <?php if (($sale['amount_due'] ?? 0) > 0): ?>
-        <div class="total-row">
-            <span class="label">Amount Due</span>
-            <span class="value" style="color: #C53030;">UGX <?php echo number_format($sale['amount_due'], 0); ?></span>
-        </div>
-        <?php endif; ?>
-        
-        <?php if ($change > 0): ?>
-        <div class="total-row change-row">
-            <span class="label"><i class="fas fa-hand-holding-usd"></i> Change</span>
-            <span class="value">UGX <?php echo number_format($change, 0); ?></span>
-        </div>
-        <?php endif; ?>
-        
-        <div class="total-row" style="margin-top: 8px;">
-            <span class="label">Payment Method</span>
-            <span class="value"><?php echo ucwords(str_replace('_', ' ', $sale['payment_method'] ?? 'Cash')); ?></span>
-        </div>
-        
-        <div class="total-row">
-            <span class="label">Payment Status</span>
-            <span class="value">
-                <?php
-                $status = $sale['payment_status'] ?? 'paid';
-                $status_label = ucfirst($status);
-                ?>
-                <span class="payment-badge <?php echo $status; ?>"><?php echo $status_label; ?></span>
-            </span>
-        </div>
-        
-        <?php if (!empty($sale['transaction_id'])): ?>
-        <div class="total-row">
-            <span class="label">Transaction ID</span>
-            <span class="value"><?php echo htmlspecialchars($sale['transaction_id']); ?></span>
-        </div>
-        <?php endif; ?>
-    </div>
-    
-    <!-- Barcode -->
-    <div class="barcode-container">
-        <svg id="barcode"></svg>
-    </div>
-    
-    <!-- Footer -->
-    <div class="receipt-footer">
-        <div class="thank-you">★ THANK YOU ★</div>
-        
-        <?php if (!empty($receipt_footer)): ?>
-            <div class="footer-message"><?php echo htmlspecialchars($receipt_footer); ?></div>
-        <?php endif; ?>
-        
-        <div>Please keep this receipt for your records</div>
-        <div>Visit us again</div>
-        
-        <div class="powered-by">
-            Powered by <?php echo APP_NAME; ?>
+        <!-- FOOTER -->
+        <div class="receipt-footer">
+            <div class="thank-you">★ THANK YOU ★</div>
+            <?php if (!empty($receipt_footer)): ?>
+                <div class="footer-message"><?php echo htmlspecialchars($receipt_footer); ?></div>
+            <?php endif; ?>
+            <div>Please keep this receipt for your records</div>
+            <div>Visit us again!</div>
+            <div class="powered-by">
+                Powered by <?php echo APP_NAME; ?> &middot; <?php echo date('Y'); ?>
+            </div>
         </div>
     </div>
-</div>
-
-<!-- Action Buttons -->
-<div class="action-buttons">
-    <button class="action-btn btn-print" onclick="window.print()">
-        <i class="fas fa-print"></i>
-        Print
-    </button>
     
-    <a href="pos.php" class="action-btn btn-pos">
-        <i class="fas fa-cash-register"></i>
-        New Sale
-    </a>
+    <!-- ACTIONS (hidden on auto-print) -->
+    <?php if (!$is_autoprint): ?>
+    <div class="action-buttons">
+        <button onclick="window.print()" class="action-btn btn-print">🖨️ Print</button>
+        <a href="pos.php" class="action-btn btn-pos">← Back to POS</a>
+        <button onclick="window.close()" class="action-btn btn-close">✕ Close</button>
+    </div>
+    <?php endif; ?>
     
-    <a href="my-sales.php" class="action-btn btn-sales">
-        <i class="fas fa-receipt"></i>
-        My Sales
-    </a>
-    
-    <button class="action-btn btn-close" onclick="window.close()">
-        <i class="fas fa-times"></i>
-        Close
-    </button>
-</div>
-
-<!-- Barcode Generator -->
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        // Generate barcode
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <script>
         try {
             JsBarcode("#barcode", "<?php echo htmlspecialchars($sale['invoice_number']); ?>", {
                 format: "CODE128",
                 displayValue: true,
-                fontSize: 12,
-                height: 45,
-                width: 1.8,
-                margin: 5,
+                fontSize: 11,
+                height: 40,
+                width: 1.5,
+                margin: 4,
                 font: "monospace"
             });
-        } catch(e) {
-            console.error('Barcode error:', e);
-        }
+        } catch(e) { console.error('Barcode error:', e); }
         
-        // Auto-print after 800ms (uncomment if you want auto-print)
-        // setTimeout(function() { window.print(); }, 800);
-    });
-    
-    // Keyboard shortcuts
-    document.addEventListener('keydown', function(e) {
-        // Ctrl+P or P = print
-        if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
-            e.preventDefault();
-            window.print();
-        } else if (e.key === 'p' && !e.ctrlKey && !e.metaKey) {
-            window.print();
+        const urlParams = new URLSearchParams(window.location.search);
+        const shouldAutoPrint = urlParams.get('print_only') === '1' || urlParams.get('autoprint') === '1';
+        
+        if (shouldAutoPrint) {
+            document.querySelectorAll('.action-buttons').forEach(el => el.style.display = 'none');
+            window.addEventListener('load', function() {
+                setTimeout(function() { window.print(); }, 400);
+            });
         }
-        // N = new sale
-        else if (e.key === 'n') {
-            window.location.href = 'pos.php';
-        }
-        // Esc = close
-        else if (e.key === 'Escape') {
-            window.close();
-        }
-    });
-</script>
-
+    </script>
 </body>
 </html>
