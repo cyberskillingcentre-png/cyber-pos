@@ -1,4 +1,4 @@
-# Electrical & Electronics Shop POS System
+# POS System
 
 ## Professional Point of Sale System for Electrical & Electronics Businesses
 
