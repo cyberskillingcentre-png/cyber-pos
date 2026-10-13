@@ -11,6 +11,7 @@ $success_messages = [];
 $error_messages = [];
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['setup'])) {
+    csrf_require();
     try {
         $conn->beginTransaction();
         

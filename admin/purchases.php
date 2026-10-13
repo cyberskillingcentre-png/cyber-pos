@@ -6,6 +6,7 @@ $page_title = "Purchase Management";
 
 // Handle Add/Edit/Delete/Receive/Payment
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    csrf_require();
     if (isset($_POST['action'])) {
         try {
             if ($_POST['action'] == 'add') {
@@ -298,6 +299,7 @@ $stores = $stmt->fetchAll();
                                         <i class="fas fa-box"></i>
                                     </button>
                                     <form method="POST" style="display:inline;">
+                                        <?php echo csrf_field(); ?>
                                         <input type="hidden" name="purchase_id" value="<?php echo $purchase['purchase_id']; ?>">
                                         <input type="hidden" name="action" value="delete">
                                         <button type="submit" class="btn btn-sm btn-danger" 
@@ -327,6 +329,7 @@ $stores = $stmt->fetchAll();
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" id="purchaseForm">
+                <?php echo csrf_field(); ?>
                 <div class="modal-body">
                     <div class="row">
                         <div class="col-md-6 mb-3">
@@ -424,6 +427,7 @@ $stores = $stmt->fetchAll();
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" id="receiveForm">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="purchase_id" id="receive_purchase_id">
                 <div class="modal-body">
                     <div class="mb-3">
@@ -462,6 +466,7 @@ $stores = $stmt->fetchAll();
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" id="paymentForm">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="purchase_id" id="payment_purchase_id">
                 <input type="hidden" name="action" value="make_payment">
                 <div class="modal-body">

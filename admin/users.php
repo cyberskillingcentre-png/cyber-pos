@@ -176,6 +176,7 @@ $alert = get_alert();
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="add-user.php">
+                <?php echo csrf_field(); ?>
                 <div class="modal-body">
                     <h6 class="border-bottom pb-2 mb-3"><i class="fas fa-user me-2"></i>Basic Information</h6>
                     <div class="row">
@@ -439,6 +440,7 @@ $alert = get_alert();
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="edit-user.php">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="user_id" id="edit_user_id">
                 <div class="modal-body">
                     <h6 class="border-bottom pb-2 mb-3"><i class="fas fa-user me-2"></i>Basic Information</h6>

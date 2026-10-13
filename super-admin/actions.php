@@ -3,6 +3,7 @@ require_once 'auth.php';
 require_super_admin();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
+    csrf_require();
 
     $action = $_POST['action'] ?? $_GET['action'];
 

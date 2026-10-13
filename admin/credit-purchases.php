@@ -195,6 +195,7 @@ $alert = get_alert();
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="record-supplier-payment.php">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="purchase_id" id="payment_purchase_id">
                 <div class="modal-body">
                     <div class="alert alert-info">

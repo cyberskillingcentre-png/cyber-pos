@@ -111,6 +111,7 @@ $payment_methods = ['cash', 'card', 'mobile_money', 'bank_transfer', 'credit'];
 // PROCESS SALE
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
+    csrf_require();
     try {
         $conn->beginTransaction();
 

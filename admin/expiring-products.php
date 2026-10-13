@@ -6,6 +6,7 @@ $page_title = "Expiring Products Management";
 
 // Handle stock transfer
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
+    csrf_require();
     if ($_POST['action'] == 'transfer') {
         try {
             $conn->beginTransaction();

@@ -16,6 +16,7 @@ if ($order_id <= 0) {
 // HANDLE PAYMENT SUBMISSION
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'record_payment') {
+    csrf_require();
     try {
         $conn->beginTransaction();
 
@@ -189,7 +190,7 @@ $alert = get_alert();
                 </h5>
             </div>
             <div class="d-flex align-items-center gap-3">
-                <a href="view_client_order.php?id=<?php echo (int)$order_id; ?>" class="btn btn-sm btn-secondary">
+                <a href="View_Order.php?id=<?php echo (int)$order_id; ?>" class="btn btn-sm btn-secondary">
                     <i class="fas fa-arrow-left me-1"></i>Back to Order
                 </a>
             </div>
@@ -218,6 +219,7 @@ $alert = get_alert();
                             </div>
                         <?php else: ?>
                             <form method="POST" id="paymentForm">
+                                <?php echo csrf_field(); ?>
                                 <input type="hidden" name="action" value="record_payment">
 
                                 <div class="mb-3">
@@ -277,7 +279,7 @@ $alert = get_alert();
                                     <button type="submit" class="btn btn-success btn-lg">
                                         <i class="fas fa-check me-2"></i>Record Payment
                                     </button>
-                                    <a href="view_client_order.php?id=<?php echo (int)$order_id; ?>" class="btn btn-secondary">Cancel</a>
+                                    <a href="View_Order.php?id=<?php echo (int)$order_id; ?>" class="btn btn-secondary">Cancel</a>
                                 </div>
                             </form>
                         <?php endif; ?>

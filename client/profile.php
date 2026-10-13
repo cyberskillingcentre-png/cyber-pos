@@ -8,6 +8,7 @@ $client = get_client_profile($conn, $_SESSION['user_id']);
 
 // Handle profile update
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
+    csrf_require();
     try {
         $full_name = trim($_POST['full_name']);
         $email = trim($_POST['email']);
@@ -46,6 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
 
 // Handle password change
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_password'])) {
+    csrf_require();
     try {
         $current_password = $_POST['current_password'];
         $new_password = $_POST['new_password'];
@@ -126,6 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_password'])) {
         <?php endif; ?>
         
         <form method="POST" id="profileForm">
+            <?php echo csrf_field(); ?>
             <div class="row">
                 <div class="col-md-6">
                     <div class="card mb-4">
@@ -278,6 +281,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_password'])) {
                             <?php endif; ?>
                             
                             <form method="POST" id="passwordForm">
+                                <?php echo csrf_field(); ?>
                                 <div class="row">
                                     <div class="col-md-4">
                                         <div class="mb-3">

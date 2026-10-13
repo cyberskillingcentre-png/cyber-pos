@@ -16,6 +16,7 @@ $stores = $stmt->fetchAll();
 
 // Handle profile update
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
+    csrf_require();
     try {
         $full_name = sanitize_input($_POST['full_name']);
         $email = sanitize_input($_POST['email']);
@@ -40,6 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
 
 // Handle password change
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_password'])) {
+    csrf_require();
     try {
         $current_password = $_POST['current_password'];
         $new_password = $_POST['new_password'];
@@ -76,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_password'])) {
 
 // Handle preferences update
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_preferences'])) {
+    csrf_require();
     try {
         // You can add more preferences here
         $auto_print_receipt = isset($_POST['auto_print_receipt']) ? 1 : 0;
@@ -187,6 +190,7 @@ $user = $stmt->fetch(PDO::FETCH_ASSOC);
                     </div>
                     <div class="card-body">
                         <form method="POST" id="password-form">
+                            <?php echo csrf_field(); ?>
                             <div class="mb-3">
                                 <label class="form-label">Current Password *</label>
                                 <input type="password" name="current_password" class="form-control" required>

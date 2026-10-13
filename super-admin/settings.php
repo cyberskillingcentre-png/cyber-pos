@@ -9,6 +9,7 @@ $error = '';
 
 // Handle settings update
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    csrf_require();
     if (isset($_POST['change_password'])) {
         $current_password = $_POST['current_password'];
         $new_password = $_POST['new_password'];

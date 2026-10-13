@@ -5,6 +5,7 @@ require_once '../config/client_auth.php';
 require_client();
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    csrf_require();
     $payment_method = $_POST['payment_method'];
     $delivery_address = trim($_POST['delivery_address'] ?? '');
     $notes = trim($_POST['notes'] ?? '');

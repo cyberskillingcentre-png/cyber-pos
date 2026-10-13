@@ -205,6 +205,7 @@ foreach ($organizations as $key => $org) {
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="actions.php">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="action" value="extend">
                 <input type="hidden" name="org_id" id="extend_org_id">
                 <div class="modal-body">
@@ -242,6 +243,7 @@ foreach ($organizations as $key => $org) {
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="actions.php">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="action" value="upgrade">
                 <input type="hidden" name="org_id" id="upgrade_org_id">
                 <div class="modal-body">

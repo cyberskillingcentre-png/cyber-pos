@@ -3,6 +3,7 @@ require_once '../config/config.php';
 require_admin();
 $page_title = "Stores/Branches";
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
+    csrf_require();
     try {
         if ($_POST['action'] == 'add') {
             $store_code = 'STR' . rand(100, 999);

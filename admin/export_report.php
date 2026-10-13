@@ -1,423 +1,590 @@
 <?php
-// Start output buffering at the VERY beginning
-ob_start();
-
 require_once '../config/config.php';
 require_admin();
 
-// Get parameters
-$export_type = $_GET['export'] ?? '';
-$format = $_GET['format'] ?? 'excel';
+// ============================================
+// INPUTS
+// ============================================
+$type      = $_GET['export'] ?? '';
+$format    = $_GET['format'] ?? 'csv';
 $date_from = $_GET['date_from'] ?? date('Y-m-01');
-$date_to = $_GET['date_to'] ?? date('Y-m-d');
-$store_filter = isset($_GET['store_id']) ? intval($_GET['store_id']) : 0;
-$payment_filter = $_GET['payment_method'] ?? '';
+$date_to   = $_GET['date_to']   ?? date('Y-m-d');
+$store_id  = isset($_GET['store_id']) ? intval($_GET['store_id']) : 0;
+$payment   = $_GET['payment_method'] ?? '';
 
-// Build WHERE clause
-$where_conditions = ["DATE(s.sale_date) BETWEEN ? AND ?", "s.status = 'completed'"];
+$valid_types   = [
+    'all-sales','all-sales-lines','sales','products','categories',
+    'team','operations','low-stock','expiring','credit',
+];
+$valid_formats = ['csv','excel','pdf'];
+
+if (!in_array($type, $valid_types, true)) {
+    http_response_code(400);
+    die('Invalid report type.');
+}
+if (!in_array($format, $valid_formats, true)) {
+    http_response_code(400);
+    die('Invalid format.');
+}
+
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) $date_from = date('Y-m-01');
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to))   $date_to   = date('Y-m-d');
+
+// ============================================
+// DETECT OPTIONAL COLUMNS
+// ============================================
+$sale_item_cols = [];
+try {
+    $sale_item_cols = $conn->query("SHOW COLUMNS FROM sale_items")->fetchAll(PDO::FETCH_COLUMN);
+} catch (PDOException $e) {}
+
+$has_profit   = in_array('profit',          $sale_item_cols, true);
+$has_discount = in_array('discount_amount', $sale_item_cols, true);
+$has_tax      = in_array('tax_amount',      $sale_item_cols, true);
+
+$profit_sql   = $has_profit   ? "si.profit"          : "0";
+$discount_sql = $has_discount ? "si.discount_amount" : "0";
+$tax_sql      = $has_tax      ? "si.tax_amount"      : "0";
+
+// ============================================
+// BASE WHERE CLAUSE
+// ============================================
+$where  = ["DATE(s.sale_date) BETWEEN ? AND ?", "s.status = 'completed'"];
 $params = [$date_from, $date_to];
 
-if ($store_filter > 0) {
-    $where_conditions[] = "s.store_id = ?";
-    $params[] = $store_filter;
+if ($store_id > 0) {
+    $where[]  = "s.store_id = ?";
+    $params[] = $store_id;
 }
-
-if (!empty($payment_filter)) {
-    $where_conditions[] = "s.payment_method = ?";
-    $params[] = $payment_filter;
+if ($payment !== '') {
+    $where[]  = "s.payment_method = ?";
+    $params[] = $payment;
 }
+$where_sql = 'WHERE ' . implode(' AND ', $where);
 
-$where_clause = "WHERE " . implode(" AND ", $where_conditions);
+// ============================================
+// REPORT DEFINITIONS
+// ============================================
+$report_title   = '';
+$sql            = '';
+$headers        = [];
+$column_formats = [];
+$query_params   = $params;
 
-// Get organization info
-$org_name = $_SESSION['org_name'] ?? 'POS System';
+switch ($type) {
 
-// Get filter details
-$filter_info = '';
-if ($store_filter > 0) {
-    $store_stmt = $conn->prepare("SELECT store_name FROM stores WHERE store_id = ?");
-    $store_stmt->execute([$store_filter]);
-    $store_name = $store_stmt->fetchColumn();
-    $filter_info .= "Store: " . $store_name . " | ";
-}
-if (!empty($payment_filter)) {
-    $filter_info .= "Payment Method: " . ucwords(str_replace('_', ' ', $payment_filter));
-}
+    case 'all-sales':
+    case 'sales':
+        $report_title = 'All Sales';
+        $sql = "
+            SELECT 
+                s.invoice_number,
+                s.sale_date,
+                COALESCE(c.customer_name, 'Walk-in') AS customer_name,
+                COALESCE(st.store_name, '-') AS store_name,
+                COALESCE(u.full_name, '-') AS served_by,
+                (SELECT COUNT(*) FROM sale_items WHERE sale_id = s.sale_id) AS item_count,
+                s.total_amount,
+                (SELECT COALESCE(SUM(profit), 0) FROM sale_items WHERE sale_id = s.sale_id) AS profit,
+                s.payment_method
+            FROM sales s
+            LEFT JOIN customers c ON s.customer_id = c.customer_id
+            LEFT JOIN stores st   ON s.store_id    = st.store_id
+            LEFT JOIN users u     ON s.served_by   = u.user_id
+            $where_sql
+            ORDER BY s.sale_date DESC
+        ";
+        $headers        = ['Invoice #','Date','Customer','Store','Served By','Items','Total','Profit','Payment'];
+        $column_formats = ['text','datetime','text','text','text','int','money','money','text'];
+        break;
 
-// Fetch data based on export type
-$data = [];
-$headers = [];
-$title = '';
+    case 'all-sales-lines':
+        $report_title = 'All Sales — Line Items';
+        $sql = "
+            SELECT 
+                s.invoice_number,
+                s.sale_date,
+                COALESCE(st.store_name, '-') AS store_name,
+                COALESCE(u.full_name, '-') AS served_by,
+                COALESCE(c.customer_name, 'Walk-in') AS customer_name,
+                s.payment_method,
+                s.payment_status,
+                p.product_code,
+                p.product_name,
+                si.quantity,
+                si.unit_price,
+                {$discount_sql} AS discount_amount,
+                {$tax_sql}      AS tax_amount,
+                si.total_price,
+                {$profit_sql}   AS profit
+            FROM sale_items si
+            JOIN sales s     ON si.sale_id    = s.sale_id
+            JOIN products p  ON si.product_id = p.product_id
+            LEFT JOIN customers c ON s.customer_id = c.customer_id
+            LEFT JOIN stores st   ON s.store_id    = st.store_id
+            LEFT JOIN users u     ON s.served_by   = u.user_id
+            $where_sql
+            ORDER BY s.sale_date DESC, si.sale_item_id DESC
+        ";
+        $headers        = ['Invoice #','Sale Date','Store','Served By','Customer',
+                           'Payment Method','Payment Status','Product Code','Product Name',
+                           'Quantity','Unit Price','Discount','Tax','Total Price','Profit'];
+        $column_formats = ['text','datetime','text','text','text',
+                           'text','text','text','text',
+                           'int','money','money','money','money','money'];
+        break;
 
-switch ($export_type) {
     case 'products':
-        $title = 'Top Selling Products Report';
-        $headers = ['#', 'Product Code', 'Product Name', 'Category', 'Qty Sold', 'Revenue (UGX)', 'Profit (UGX)', 'Margin %', 'Transactions'];
-        
-        $stmt = $conn->prepare("
+        $report_title = 'Product Performance';
+        $sql = "
             SELECT 
                 p.product_code,
                 p.product_name,
-                c.category_name,
-                SUM(si.quantity) as total_sold,
-                COALESCE(SUM(si.total_price), 0) as revenue,
-                COALESCE(SUM(si.profit), 0) as profit,
-                COUNT(DISTINCT s.sale_id) as transaction_count
+                COALESCE(c.category_name, 'Uncategorized') AS category_name,
+                SUM(si.quantity) AS units_sold,
+                COUNT(DISTINCT s.sale_id) AS orders,
+                COALESCE(SUM(si.total_price), 0) AS revenue,
+                COALESCE(SUM({$profit_sql}), 0) AS profit
             FROM sale_items si
             JOIN products p ON si.product_id = p.product_id
             LEFT JOIN categories c ON p.category_id = c.category_id
             JOIN sales s ON si.sale_id = s.sale_id
-            $where_clause
-            GROUP BY p.product_id
-            ORDER BY total_sold DESC
-            LIMIT 100
-        ");
-        $stmt->execute($params);
-        $results = $stmt->fetchAll();
-        
-        $i = 1;
-        foreach ($results as $row) {
-            $margin = $row['revenue'] > 0 ? ($row['profit'] / $row['revenue']) * 100 : 0;
-            $data[] = [
-                $i++,
-                $row['product_code'],
-                $row['product_name'],
-                $row['category_name'] ?? 'N/A',
-                number_format($row['total_sold']),
-                number_format($row['revenue'], 0),
-                number_format($row['profit'], 0),
-                number_format($margin, 2) . '%',
-                number_format($row['transaction_count'])
-            ];
-        }
+            $where_sql
+            GROUP BY p.product_id, p.product_code, p.product_name, category_name
+            ORDER BY revenue DESC
+        ";
+        $headers        = ['Code','Product','Category','Units','Orders','Revenue','Profit'];
+        $column_formats = ['text','text','text','int','int','money','money'];
         break;
 
-    case 'sellers':
-        $title = 'Top Sellers Performance Report';
-        $headers = ['#', 'Employee Name', 'Role', 'Sales Count', 'Total Sales (UGX)', 'Profit (UGX)', 'Avg Sale (UGX)'];
-        
-        $stmt = $conn->prepare("
+    case 'categories':
+        $report_title = 'Category Performance';
+        $sql = "
+            SELECT 
+                COALESCE(c.category_name, 'Uncategorized') AS category_name,
+                COUNT(DISTINCT p.product_id) AS product_count,
+                COALESCE(SUM(si.quantity), 0) AS units_sold,
+                COALESCE(SUM(si.total_price), 0) AS revenue,
+                COALESCE(SUM({$profit_sql}), 0) AS profit
+            FROM sale_items si
+            JOIN products p ON si.product_id = p.product_id
+            LEFT JOIN categories c ON p.category_id = c.category_id
+            JOIN sales s ON si.sale_id = s.sale_id
+            $where_sql
+            GROUP BY c.category_id, category_name
+            ORDER BY revenue DESC
+        ";
+        $headers        = ['Category','Products','Units','Revenue','Profit'];
+        $column_formats = ['text','int','int','money','money'];
+        break;
+
+    case 'team':
+        $report_title = 'Team Performance';
+        $sql = "
             SELECT 
                 u.full_name,
                 u.role,
-                COUNT(s.sale_id) as sales_count,
-                COALESCE(SUM(s.total_amount), 0) as total_sales,
-                COALESCE(SUM(si.profit), 0) as profit,
-                COALESCE(AVG(s.total_amount), 0) as avg_sale_value
+                COUNT(DISTINCT s.sale_id) AS sales_count,
+                COALESCE(SUM(s.total_amount), 0) AS revenue,
+                COALESCE(AVG(s.total_amount), 0) AS avg_sale
             FROM sales s
             JOIN users u ON s.served_by = u.user_id
-            LEFT JOIN sale_items si ON s.sale_id = si.sale_id
-            $where_clause
-            GROUP BY u.user_id
-            ORDER BY total_sales DESC
-        ");
-        $stmt->execute($params);
-        $results = $stmt->fetchAll();
-        
-        $i = 1;
-        foreach ($results as $row) {
-            $data[] = [
-                $i++,
-                $row['full_name'],
-                $row['role'],
-                number_format($row['sales_count']),
-                number_format($row['total_sales'], 0),
-                number_format($row['profit'], 0),
-                number_format($row['avg_sale_value'], 0)
-            ];
-        }
-        break;
-
-    case 'customers':
-        $title = 'Top Customers Report';
-        $headers = ['#', 'Customer Name', 'Phone', 'Email', 'Purchases', 'Total Spent (UGX)', 'Avg Purchase (UGX)', 'Last Purchase'];
-        
-        $check_customers = $conn->query("SELECT COUNT(*) FROM customers");
-        if ($check_customers->fetchColumn() == 0) {
-            $data[] = ['No customer data available', '', '', '', '', '', '', ''];
-            break;
-        }
-        
-        $stmt = $conn->prepare("
-            SELECT 
-                c.customer_name,
-                c.phone,
-                c.email,
-                COUNT(s.sale_id) as purchase_count,
-                COALESCE(SUM(s.total_amount), 0) as total_spent,
-                COALESCE(AVG(s.total_amount), 0) as avg_purchase,
-                MAX(s.sale_date) as last_purchase
-            FROM sales s
-            JOIN customers c ON s.customer_id = c.customer_id
-            $where_clause
-            GROUP BY c.customer_id
-            ORDER BY total_spent DESC
-            LIMIT 100
-        ");
-        $stmt->execute($params);
-        $results = $stmt->fetchAll();
-        
-        if (empty($results)) {
-            $data[] = ['No customer purchases in selected period', '', '', '', '', '', '', ''];
-            break;
-        }
-        
-        $i = 1;
-        foreach ($results as $row) {
-            $data[] = [
-                $i++,
-                $row['customer_name'],
-                $row['phone'] ?? 'N/A',
-                $row['email'] ?? 'N/A',
-                number_format($row['purchase_count']),
-                number_format($row['total_spent'], 0),
-                number_format($row['avg_purchase'], 0),
-                date('d/m/Y', strtotime($row['last_purchase']))
-            ];
-        }
-        break;
-
-    case 'stores':
-        $title = 'Store Performance Report';
-        $headers = ['Store Code', 'Store Name', 'Sales Count', 'Revenue (UGX)', 'Profit (UGX)', 'Avg Sale (UGX)'];
-        
-        $stmt = $conn->prepare("
-            SELECT 
-                st.store_code,
-                st.store_name,
-                COUNT(s.sale_id) as sales_count,
-                COALESCE(SUM(s.total_amount), 0) as revenue,
-                COALESCE(SUM(si.profit), 0) as profit,
-                COALESCE(AVG(s.total_amount), 0) as avg_sale
-            FROM sales s
-            JOIN stores st ON s.store_id = st.store_id
-            LEFT JOIN sale_items si ON s.sale_id = si.sale_id
-            $where_clause
-            GROUP BY st.store_id
+            $where_sql
+            GROUP BY u.user_id, u.full_name, u.role
             ORDER BY revenue DESC
-        ");
-        $stmt->execute($params);
-        $results = $stmt->fetchAll();
-        
-        foreach ($results as $row) {
-            $data[] = [
-                $row['store_code'],
-                $row['store_name'],
-                number_format($row['sales_count']),
-                number_format($row['revenue'], 0),
-                number_format($row['profit'], 0),
-                number_format($row['avg_sale'], 0)
-            ];
-        }
+        ";
+        $headers        = ['Name','Role','Sales Count','Revenue','Avg Sale'];
+        $column_formats = ['text','text','int','money','money'];
         break;
 
-    case 'payments':
-        $title = 'Payment Method Analysis Report';
-        $headers = ['Payment Method', 'Transactions', 'Total Amount (UGX)', 'Avg Transaction (UGX)', '% of Total'];
-        
+    case 'low-stock':
+        $report_title = 'Low Stock Products';
+        $sql = "
+            SELECT 
+                p.product_code,
+                p.product_name,
+                st.store_name,
+                COALESCE(SUM(si.quantity), 0) AS current_stock,
+                p.reorder_level
+            FROM products p
+            CROSS JOIN stores st
+            LEFT JOIN store_inventory si 
+                ON p.product_id = si.product_id 
+                AND st.store_id = si.store_id
+                AND si.quantity > 0
+            WHERE p.status = 'active' AND st.status = 'active'
+            GROUP BY p.product_id, p.product_code, p.product_name, st.store_id, st.store_name, p.reorder_level
+            HAVING COALESCE(SUM(si.quantity), 0) <= p.reorder_level
+            ORDER BY (COALESCE(SUM(si.quantity), 0) - p.reorder_level) ASC
+        ";
+        $headers        = ['Code','Product','Store','Current Stock','Reorder Level'];
+        $column_formats = ['text','text','text','int','int'];
+        $query_params   = [];
+        break;
+
+    case 'expiring':
+        $report_title = 'Expiring Products (Next 30 Days)';
+        $sql = "
+            SELECT 
+                p.product_code,
+                p.product_name,
+                st.store_name,
+                si.batch_number,
+                si.quantity,
+                si.expiry_date,
+                DATEDIFF(si.expiry_date, CURDATE()) AS days_left,
+                (si.quantity * p.purchase_price) AS value_at_risk
+            FROM store_inventory si
+            JOIN products p ON si.product_id = p.product_id
+            JOIN stores st  ON si.store_id   = st.store_id
+            WHERE p.has_expiry = 'yes'
+              AND si.expiry_date IS NOT NULL
+              AND si.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+              AND si.quantity > 0
+            ORDER BY si.expiry_date ASC
+        ";
+        $headers        = ['Code','Product','Store','Batch','Qty','Expiry','Days Left','Value at Risk'];
+        $column_formats = ['text','text','text','text','int','date','int','money'];
+        $query_params   = [];
+        break;
+
+    case 'credit':
+        $report_title = 'Outstanding Credit';
+        $sql = "
+            SELECT 
+                COALESCE(c.customer_name, 'Walk-in') AS customer_name,
+                COALESCE(c.phone, '-') AS phone,
+                COUNT(s.sale_id) AS credit_sales,
+                COALESCE(SUM(s.total_amount), 0) AS total_credit,
+                COALESCE(SUM(s.amount_due), 0) AS outstanding
+            FROM sales s
+            LEFT JOIN customers c ON s.customer_id = c.customer_id
+            WHERE s.payment_method = 'credit'
+              AND s.amount_due > 0
+              AND DATE(s.sale_date) BETWEEN ? AND ?
+              AND s.status = 'completed'
+            GROUP BY s.customer_id, customer_name, phone
+            ORDER BY outstanding DESC
+        ";
+        $headers        = ['Customer','Phone','Credit Sales','Total Credit','Outstanding'];
+        $column_formats = ['text','text','int','money','money'];
+        $query_params   = [$date_from, $date_to];
+        break;
+
+    case 'operations':
+        break;
+}
+
+// ============================================
+// RUN QUERY
+// ============================================
+try {
+    if ($type === 'operations') {
+        $rows = [];
+
         $stmt = $conn->prepare("
             SELECT 
-                payment_method,
-                COUNT(*) as transaction_count,
-                COALESCE(SUM(total_amount), 0) as total_amount,
-                COALESCE(AVG(total_amount), 0) as avg_amount
-            FROM sales s
-            $where_clause
-            GROUP BY payment_method
-            ORDER BY total_amount DESC
+                p.product_code, p.product_name, st.store_name,
+                COALESCE(SUM(si.quantity), 0) AS current_stock,
+                p.reorder_level
+            FROM products p
+            CROSS JOIN stores st
+            LEFT JOIN store_inventory si 
+                ON p.product_id = si.product_id 
+                AND st.store_id = si.store_id
+                AND si.quantity > 0
+            WHERE p.status = 'active' AND st.status = 'active'
+            GROUP BY p.product_id, p.product_code, p.product_name, st.store_id, st.store_name, p.reorder_level
+            HAVING COALESCE(SUM(si.quantity), 0) <= p.reorder_level
+            ORDER BY (COALESCE(SUM(si.quantity), 0) - p.reorder_level) ASC
         ");
-        $stmt->execute($params);
-        $results = $stmt->fetchAll();
-        
-        $total = array_sum(array_column($results, 'total_amount'));
-        foreach ($results as $row) {
-            $percentage = $total > 0 ? ($row['total_amount'] / $total) * 100 : 0;
-            $data[] = [
-                ucwords(str_replace('_', ' ', $row['payment_method'])),
-                number_format($row['transaction_count']),
-                number_format($row['total_amount'], 0),
-                number_format($row['avg_amount'], 0),
-                number_format($percentage, 2) . '%'
+        $stmt->execute();
+        $low = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $stmt = $conn->prepare("
+            SELECT 
+                p.product_code, p.product_name, st.store_name,
+                si.batch_number, si.quantity, si.expiry_date,
+                DATEDIFF(si.expiry_date, CURDATE()) AS days_left
+            FROM store_inventory si
+            JOIN products p ON si.product_id = p.product_id
+            JOIN stores st  ON si.store_id   = st.store_id
+            WHERE p.has_expiry = 'yes'
+              AND si.expiry_date IS NOT NULL
+              AND si.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+              AND si.quantity > 0
+            ORDER BY si.expiry_date ASC
+        ");
+        $stmt->execute();
+        $expiring = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $stmt = $conn->prepare("
+            SELECT 
+                COALESCE(c.customer_name, 'Walk-in') AS customer_name,
+                COALESCE(c.phone, '-') AS phone,
+                COALESCE(SUM(s.amount_due), 0) AS outstanding
+            FROM sales s
+            LEFT JOIN customers c ON s.customer_id = c.customer_id
+            WHERE s.payment_method = 'credit'
+              AND s.amount_due > 0
+              AND s.status = 'completed'
+            GROUP BY s.customer_id, customer_name, phone
+            ORDER BY outstanding DESC
+        ");
+        $stmt->execute();
+        $credit = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $report_title   = 'Operations Report';
+        $headers        = ['Section','Detail','Store / Batch','Qty / Value','Notes'];
+        $column_formats = ['text','text','text','text','text'];
+
+        foreach ($low as $row) {
+            $rows[] = [
+                'section'    => 'Low Stock',
+                'detail'     => $row['product_code'] . ' — ' . $row['product_name'],
+                'store'      => $row['store_name'],
+                'qty_value'  => $row['current_stock'] . ' / ' . $row['reorder_level'],
+                'additional' => 'Restock needed',
             ];
         }
-        break;
-
-    default:
-        ob_end_clean();
-        die('Invalid export type');
-}
-
-// Handle empty data
-if (empty($data)) {
-    $data[] = array_fill(0, count($headers), 'No data available');
-}
-
-// Export based on format
-if ($format == 'excel') {
-    // Clear any output buffer before Excel
-    ob_end_clean();
-    
-    // Excel export with professional styling
-    header('Content-Type: application/vnd.ms-excel');
-    header('Content-Disposition: attachment; filename="' . $export_type . '_report_' . date('Y-m-d') . '.xls"');
-    
-    echo '<!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            body { font-family: Arial, sans-serif; }
-            .header { text-align: center; margin-bottom: 20px; }
-            h1 { color: #2c3e50; margin: 10px 0; font-size: 20px; }
-            h2 { color: #34495e; margin: 5px 0; font-size: 16px; }
-            .info { color: #7f8c8d; font-size: 12px; margin: 5px 0; }
-            table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-            th { 
-                background-color: #3498db; 
-                color: white; 
-                padding: 10px; 
-                font-weight: bold; 
-                border: 1px solid #2980b9;
-                text-align: left;
-            }
-            td { 
-                padding: 8px; 
-                border: 1px solid #bdc3c7; 
-                text-align: left;
-            }
-            tr:nth-child(even) { background-color: #ecf0f1; }
-            .footer { 
-                text-align: center; 
-                margin-top: 20px; 
-                font-size: 10px; 
-                color: #95a5a6; 
-            }
-        </style>
-    </head>
-    <body>';
-    
-    echo '<div class="header">';
-    echo "<h1>" . htmlspecialchars($org_name) . "</h1>";
-    echo "<h2>" . htmlspecialchars($title) . "</h2>";
-    echo "<p class='info'>Period: <strong>" . date('d M Y', strtotime($date_from)) . "</strong> to <strong>" . date('d M Y', strtotime($date_to)) . "</strong></p>";
-    
-    if ($filter_info) {
-        echo "<p class='info'>" . htmlspecialchars(rtrim($filter_info, ' | ')) . "</p>";
-    }
-    echo '</div>';
-    
-    echo "<table>";
-    echo "<thead><tr>";
-    foreach ($headers as $header) {
-        echo "<th>" . htmlspecialchars($header) . "</th>";
-    }
-    echo "</tr></thead><tbody>";
-    
-    foreach ($data as $row) {
-        echo "<tr>";
-        foreach ($row as $cell) {
-            echo "<td>" . htmlspecialchars($cell) . "</td>";
+        foreach ($expiring as $row) {
+            $rows[] = [
+                'section'    => 'Expiring',
+                'detail'     => $row['product_code'] . ' — ' . $row['product_name'],
+                'store'      => $row['store_name'] . ' (batch ' . $row['batch_number'] . ')',
+                'qty_value'  => $row['quantity'] . ' units',
+                'additional' => 'Expires ' . date('d/m/Y', strtotime($row['expiry_date'])) . ' (' . $row['days_left'] . 'd)',
+            ];
         }
-        echo "</tr>";
-    }
-    
-    echo "</tbody></table>";
-    echo "<p class='footer'>Generated on: " . date('d M Y H:i:s') . "</p>";
-    echo "</body></html>";
-    
-} elseif ($format == 'pdf') {
-    // Clear any output buffer before PDF
-    ob_end_clean();
-    
-    // PDF export using TCPDF
-    require_once('../includes/tcpdf/tcpdf.php');
-    
-    // Create new PDF document
-    $pdf = new TCPDF('L', PDF_UNIT, 'A4', true, 'UTF-8', false);
-    
-    // Set document information
-    $pdf->SetCreator('POS System');
-    $pdf->SetAuthor($org_name);
-    $pdf->SetTitle($title);
-    $pdf->SetSubject('Sales Report');
-    
-    // Remove default header/footer
-    $pdf->setPrintHeader(false);
-    $pdf->setPrintFooter(false);
-    
-    // Set margins
-    $pdf->SetMargins(10, 10, 10);
-    $pdf->SetAutoPageBreak(TRUE, 10);
-    
-    // Add a page
-    $pdf->AddPage();
-    
-    // Set font
-    $pdf->SetFont('helvetica', 'B', 18);
-    
-    // Organization Name
-    $pdf->Cell(0, 10, $org_name, 0, 1, 'C');
-    
-    // Title
-    $pdf->SetFont('helvetica', 'B', 14);
-    $pdf->Cell(0, 8, $title, 0, 1, 'C');
-    
-    // Date Range
-    $pdf->SetFont('helvetica', '', 10);
-    $pdf->Cell(0, 6, 'Period: ' . date('d M Y', strtotime($date_from)) . ' to ' . date('d M Y', strtotime($date_to)), 0, 1, 'C');
-    
-    // Filter Info
-    if ($filter_info) {
-        $pdf->Cell(0, 6, rtrim($filter_info, ' | '), 0, 1, 'C');
-    }
-    
-    $pdf->Ln(5);
-    
-    // Table Header
-    $pdf->SetFont('helvetica', 'B', 9);
-    $pdf->SetFillColor(52, 152, 219);
-    $pdf->SetTextColor(255, 255, 255);
-    
-    // Calculate column widths based on page width
-    $pageWidth = $pdf->getPageWidth() - 20; // Minus margins
-    $colCount = count($headers);
-    $colWidth = $pageWidth / $colCount;
-    
-    // Adjust column widths for better fit
-    $widths = [];
-    foreach ($headers as $header) {
-        $widths[] = $colWidth;
-    }
-    
-    // Print header row
-    foreach ($headers as $i => $header) {
-        $pdf->Cell($widths[$i], 8, $header, 1, 0, 'L', true);
-    }
-    $pdf->Ln();
-    
-    // Table Body
-    $pdf->SetFont('helvetica', '', 8);
-    $pdf->SetTextColor(0, 0, 0);
-    $fill = false;
-    
-    foreach ($data as $row) {
-        $pdf->SetFillColor(236, 240, 241);
-        foreach ($row as $i => $cell) {
-            $pdf->Cell($widths[$i], 7, $cell, 1, 0, 'L', $fill);
+        foreach ($credit as $row) {
+            $rows[] = [
+                'section'    => 'Outstanding Credit',
+                'detail'     => $row['customer_name'] . ' (' . $row['phone'] . ')',
+                'store'      => '-',
+                'qty_value'  => number_format($row['outstanding'], 2) . ' UGX',
+                'additional' => 'Contact for payment',
+            ];
         }
-        $pdf->Ln();
-        $fill = !$fill;
+    } else {
+        $stmt = $conn->prepare($sql);
+        $stmt->execute($query_params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
-    
-    // Footer
-    $pdf->Ln(5);
-    $pdf->SetFont('helvetica', 'I', 8);
-    $pdf->SetTextColor(149, 165, 166);
-    $pdf->Cell(0, 5, 'Generated on: ' . date('d M Y H:i:s'), 0, 1, 'R');
-    
-    // Output PDF
-    $pdf->Output($export_type . '_report_' . date('Y-m-d') . '.pdf', 'D');
+} catch (PDOException $e) {
+    error_log('export_report failed: ' . $e->getMessage());
+    http_response_code(500);
+    die('Export failed: ' . $e->getMessage());
 }
 
-exit;
-?>
+// ============================================
+// COMPANY INFO
+// ============================================
+$settings = [];
+try {
+    foreach ($conn->query("SELECT setting_key, setting_value FROM system_settings")->fetchAll(PDO::FETCH_ASSOC) as $s) {
+        $settings[$s['setting_key']] = $s['setting_value'];
+    }
+} catch (PDOException $e) {}
+
+$company_name = $settings['company_name'] ?? 'My Business';
+
+// ============================================
+// CELL FORMATTER
+// ============================================
+function format_cell($value, $type) {
+    if ($value === null || $value === '') {
+        return $type === 'money' ? '0.00' : '';
+    }
+    switch ($type) {
+        case 'money':    return number_format((float)$value, 2);
+        case 'int':      return (string)(int)$value;
+        case 'date':     return date('d/m/Y', strtotime($value));
+        case 'datetime': return date('d/m/Y H:i', strtotime($value));
+        default:         return (string)$value;
+    }
+}
+
+// ============================================
+// CSV / EXCEL
+// ============================================
+if ($format === 'csv' || $format === 'excel') {
+    $ext      = ($format === 'excel') ? 'xls' : 'csv';
+    $mime     = ($format === 'excel') ? 'application/vnd.ms-excel' : 'text/csv';
+    $filename = "report_{$type}_{$date_from}_to_{$date_to}.{$ext}";
+
+    header("Content-Type: {$mime}; charset=utf-8");
+    header("Content-Disposition: attachment; filename=\"{$filename}\"");
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
+    $out = fopen('php://output', 'w');
+    fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+    fputcsv($out, [$company_name]);
+    fputcsv($out, [$report_title]);
+    fputcsv($out, ["Period: " . date('d M Y', strtotime($date_from)) . " to " . date('d M Y', strtotime($date_to))]);
+    fputcsv($out, []);
+    fputcsv($out, $headers);
+
+    foreach ($rows as $row) {
+        $line = [];
+        foreach (array_values($row) as $i => $value) {
+            $fmt = $column_formats[$i] ?? 'text';
+            $line[] = format_cell($value, $fmt);
+        }
+        fputcsv($out, $line);
+    }
+
+    fputcsv($out, []);
+    fputcsv($out, ['Total rows:', count($rows)]);
+    fputcsv($out, ['Generated:', date('d M Y H:i')]);
+
+    fclose($out);
+    exit;
+}
+
+// ============================================
+// PDF
+// ============================================
+if ($format === 'pdf') {
+    $autoload = __DIR__ . '/../vendor/autoload.php';
+    if (!file_exists($autoload)) {
+        http_response_code(500);
+        die('PDF library not installed. Run: composer require dompdf/dompdf');
+    }
+    require_once $autoload;
+
+    $max_pdf_rows = 2000;
+    $truncated = false;
+    if (count($rows) > $max_pdf_rows) {
+        $rows = array_slice($rows, 0, $max_pdf_rows);
+        $truncated = true;
+    }
+
+    $column_totals = [];
+    foreach ($column_formats as $i => $fmt) {
+        if ($fmt === 'money' || $fmt === 'int') {
+            $sum = 0;
+            foreach ($rows as $row) {
+                $vals = array_values($row);
+                $sum += (float) ($vals[$i] ?? 0);
+            }
+            $column_totals[$i] = $sum;
+        }
+    }
+
+    $html  = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>';
+    $html .= '
+        @page { margin: 22px 18px; }
+        * { box-sizing: border-box; }
+        body { font-family: DejaVu Sans, sans-serif; font-size: 9px; color: #1A202C; margin: 0; }
+        .header { border-bottom: 2px solid #6B46C1; padding-bottom: 12px; margin-bottom: 14px; }
+        .header h1 { margin: 0; font-size: 16px; color: #6B46C1; letter-spacing: 1px; }
+        .header h2 { margin: 4px 0 0; font-size: 12px; color: #2D3748; font-weight: normal; }
+        .header .period { margin-top: 4px; font-size: 9px; color: #718096; }
+        .header .generated { margin-top: 2px; font-size: 8px; color: #A0AEC0; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        thead th {
+            background: #6B46C1; color: #fff; padding: 6px 5px;
+            font-size: 8px; text-transform: uppercase; letter-spacing: 0.5px;
+            text-align: left; border: 1px solid #553C9A;
+        }
+        thead th.money, thead th.int { text-align: right; }
+        tbody td { padding: 4px 5px; border: 1px solid #E2E8F0; font-size: 8.5px; }
+        tbody td.money, tbody td.int { text-align: right; font-family: DejaVu Sans Mono, monospace; }
+        tbody tr:nth-child(even) { background: #F7FAFC; }
+        tfoot td {
+            padding: 6px 5px; border: 1px solid #6B46C1;
+            background: #EDE9FE; font-weight: bold; font-size: 9px; text-align: right;
+        }
+        tfoot td.label { text-align: right; color: #553C9A; }
+        .footer {
+            margin-top: 14px; padding-top: 8px;
+            border-top: 1px solid #E2E8F0;
+            font-size: 8px; color: #718096; text-align: center;
+        }
+        .notice {
+            margin-top: 10px; padding: 6px 10px;
+            background: #FEFCBF; border-left: 3px solid #ED8936;
+            font-size: 8px; color: #744210;
+        }
+    ';
+    $html .= '</style></head><body>';
+
+    $html .= '<div class="header">';
+    $html .= '<h1>' . htmlspecialchars($company_name) . '</h1>';
+    $html .= '<h2>' . htmlspecialchars($report_title) . '</h2>';
+    $html .= '<div class="period">Period: ' . date('d M Y', strtotime($date_from)) . ' to ' . date('d M Y', strtotime($date_to)) . '</div>';
+    $html .= '<div class="generated">Generated: ' . date('d M Y H:i') . ' &middot; ' . count($rows) . ' rows</div>';
+    $html .= '</div>';
+
+    $html .= '<table><thead><tr>';
+    foreach ($headers as $i => $h) {
+        $fmt = $column_formats[$i] ?? 'text';
+        $cls = in_array($fmt, ['money','int'], true) ? $fmt : '';
+        $html .= '<th class="' . $cls . '">' . htmlspecialchars($h) . '</th>';
+    }
+    $html .= '</tr></thead><tbody>';
+
+    if (empty($rows)) {
+        $html .= '<tr><td colspan="' . count($headers) . '" style="text-align:center;padding:20px;color:#718096;">No data for the selected filters</td></tr>';
+    } else {
+        foreach ($rows as $row) {
+            $html .= '<tr>';
+            foreach (array_values($row) as $i => $value) {
+                $fmt = $column_formats[$i] ?? 'text';
+                $cls = in_array($fmt, ['money','int'], true) ? $fmt : '';
+                $html .= '<td class="' . $cls . '">' . htmlspecialchars(format_cell($value, $fmt)) . '</td>';
+            }
+            $html .= '</tr>';
+        }
+    }
+    $html .= '</tbody>';
+
+    if (!empty($column_totals)) {
+        $html .= '<tfoot><tr>';
+        foreach ($headers as $i => $h) {
+            if ($i === 0) {
+                $html .= '<td class="label">TOTAL</td>';
+            } elseif (isset($column_totals[$i])) {
+                $fmt = $column_formats[$i] ?? 'text';
+                $val = ($fmt === 'money')
+                    ? number_format($column_totals[$i], 2)
+                    : number_format($column_totals[$i]);
+                $html .= '<td>' . $val . '</td>';
+            } else {
+                $html .= '<td></td>';
+            }
+        }
+        $html .= '</tr></tfoot>';
+    }
+
+    $html .= '</table>';
+
+    if ($truncated) {
+        $html .= '<div class="notice"><strong>Note:</strong> Report capped at ' . $max_pdf_rows . ' rows. Use CSV export for the full dataset.</div>';
+    }
+
+    $html .= '<div class="footer">Generated by ' . htmlspecialchars(APP_NAME) . ' &middot; ' . date('Y') . '</div>';
+    $html .= '</body></html>';
+
+    try {
+        $options = new \Dompdf\Options();
+        $options->set('isRemoteEnabled', false);
+        $options->set('isHtml5ParserEnabled', true);
+        $options->set('defaultFont', 'DejaVu Sans');
+
+        $dompdf = new \Dompdf\Dompdf($options);
+        $dompdf->loadHtml($html);
+        $dompdf->setPaper('A4', 'landscape');
+        $dompdf->render();
+
+        $filename = "report_{$type}_{$date_from}_to_{$date_to}.pdf";
+        $dompdf->stream($filename, ['Attachment' => true]);
+        exit;
+    } catch (Exception $e) {
+        error_log('Dompdf failed: ' . $e->getMessage());
+        http_response_code(500);
+        die('PDF generation failed: ' . $e->getMessage());
+    }
+}

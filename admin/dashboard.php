@@ -4,1258 +4,1293 @@ require_admin();
 
 $page_title = "Dashboard";
 
-// Get dashboard statistics
 try {
-    // Today's sales
-    $stmt = $conn->prepare("SELECT COUNT(*) as count, COALESCE(SUM(total_amount), 0) as total FROM sales WHERE DATE(sale_date) = CURDATE() AND status = 'completed'");
+    // ============================================
+    // KPI: TODAY'S SALES + YESTERDAY COMPARISON
+    // ============================================
+    $stmt = $conn->prepare("
+        SELECT COUNT(*) AS count, COALESCE(SUM(total_amount), 0) AS total
+        FROM sales
+        WHERE DATE(sale_date) = CURDATE() AND status = 'completed'
+    ");
     $stmt->execute();
     $today_sales = $stmt->fetch();
-    
-    // This month's sales
-    $stmt = $conn->prepare("SELECT COUNT(*) as count, COALESCE(SUM(total_amount), 0) as total FROM sales WHERE MONTH(sale_date) = MONTH(CURDATE()) AND YEAR(sale_date) = YEAR(CURDATE()) AND status = 'completed'");
+
+    $stmt = $conn->prepare("
+        SELECT COUNT(*) AS count, COALESCE(SUM(total_amount), 0) AS total
+        FROM sales
+        WHERE DATE(sale_date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+          AND status = 'completed'
+    ");
+    $stmt->execute();
+    $yesterday_sales = $stmt->fetch();
+
+    $today_delta = 0;
+    if ($yesterday_sales['total'] > 0) {
+        $today_delta = (($today_sales['total'] - $yesterday_sales['total']) / $yesterday_sales['total']) * 100;
+    }
+
+    // ============================================
+    // KPI: THIS MONTH'S POS SALES + LAST MONTH
+    // ============================================
+    $stmt = $conn->prepare("
+        SELECT COUNT(*) AS count, COALESCE(SUM(total_amount), 0) AS total
+        FROM sales
+        WHERE MONTH(sale_date) = MONTH(CURDATE())
+          AND YEAR(sale_date) = YEAR(CURDATE())
+          AND status = 'completed'
+    ");
     $stmt->execute();
     $month_sales = $stmt->fetch();
-    
-    // Total products
-    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM products WHERE status = 'active'");
+
+    $stmt = $conn->prepare("
+        SELECT COALESCE(SUM(total_amount), 0) AS total
+        FROM sales
+        WHERE MONTH(sale_date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+          AND YEAR(sale_date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+          AND status = 'completed'
+    ");
+    $stmt->execute();
+    $last_month_total = (float) $stmt->fetchColumn();
+
+    $month_delta = 0;
+    if ($last_month_total > 0) {
+        $month_delta = (($month_sales['total'] - $last_month_total) / $last_month_total) * 100;
+    }
+
+    // ============================================
+    // KPI: CLIENT ORDERS THIS MONTH
+    // ============================================
+    $stmt = $conn->prepare("
+        SELECT 
+            COUNT(*) AS order_count,
+            COALESCE(SUM(grand_total), 0) AS order_total,
+            COALESCE(SUM(amount_paid), 0) AS amount_received,
+            COALESCE(SUM(amount_due), 0) AS amount_outstanding
+        FROM client_orders
+        WHERE MONTH(order_date) = MONTH(CURDATE())
+          AND YEAR(order_date) = YEAR(CURDATE())
+          AND order_status != 'cancelled'
+    ");
+    $stmt->execute();
+    $client_orders_month = $stmt->fetch();
+
+    // Client order status breakdown (for the donut)
+    $stmt = $conn->prepare("
+        SELECT order_status, COUNT(*) AS count
+        FROM client_orders
+        WHERE MONTH(order_date) = MONTH(CURDATE())
+          AND YEAR(order_date) = YEAR(CURDATE())
+        GROUP BY order_status
+    ");
+    $stmt->execute();
+    $order_status_breakdown = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $total_revenue_month = [
+        'total' => floatval($month_sales['total']) + floatval($client_orders_month['order_total']),
+        'count' => intval($month_sales['count']) + intval($client_orders_month['order_count']),
+    ];
+
+    // ============================================
+    // KPI: TOTAL PRODUCTS + LOW STOCK
+    // ============================================
+    $stmt = $conn->prepare("SELECT COUNT(*) AS count FROM products WHERE status = 'active'");
     $stmt->execute();
     $total_products = $stmt->fetch();
-    
-    // Low stock products
-    $stmt = $conn->prepare("SELECT COUNT(DISTINCT p.product_id) as count FROM products p LEFT JOIN store_inventory si ON p.product_id = si.product_id WHERE p.status = 'active' AND (si.quantity <= p.reorder_level OR si.quantity IS NULL)");
+
+    $stmt = $conn->prepare("
+        SELECT COUNT(DISTINCT p.product_id) AS count
+        FROM products p
+        LEFT JOIN store_inventory si ON p.product_id = si.product_id
+        WHERE p.status = 'active'
+          AND (si.quantity <= p.reorder_level OR si.quantity IS NULL)
+    ");
     $stmt->execute();
     $low_stock = $stmt->fetch();
-    
-    // Total customers
-    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM customers WHERE status = 'active'");
+
+    // ============================================
+    // KPI: TOTAL CUSTOMERS
+    // ============================================
+    $stmt = $conn->prepare("SELECT COUNT(*) AS count FROM customers WHERE status = 'active'");
     $stmt->execute();
     $total_customers = $stmt->fetch();
-    
-    // Pending returns
-    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM returns WHERE status = 'pending'");
-    $stmt->execute();
-    $pending_returns = $stmt->fetch();
-    
-    // Expiring products (within 30 days)
+
+    // ============================================
+    // EXPIRING PRODUCTS
+    // ============================================
     $stmt = $conn->prepare("
-        SELECT COUNT(DISTINCT si.inventory_id) as count,
-               COALESCE(SUM(si.quantity * p.purchase_price), 0) as total_value
+        SELECT COUNT(DISTINCT si.inventory_id) AS count,
+               COALESCE(SUM(si.quantity * p.purchase_price), 0) AS total_value
         FROM store_inventory si
         JOIN products p ON si.product_id = p.product_id
-        WHERE p.has_expiry = 'yes' 
-        AND si.expiry_date IS NOT NULL
-        AND si.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-        AND si.quantity > 0
+        WHERE p.has_expiry = 'yes'
+          AND si.expiry_date IS NOT NULL
+          AND si.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+          AND si.quantity > 0
     ");
     $stmt->execute();
     $expiring_products = $stmt->fetch();
-    
-    // Recent sales for chart (last 7 days)
-    $stmt = $conn->prepare("SELECT DATE(sale_date) as date, COUNT(*) as count, COALESCE(SUM(total_amount), 0) as total FROM sales WHERE sale_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND status = 'completed' GROUP BY DATE(sale_date) ORDER BY date ASC");
+
+    // ============================================
+    // CHART: 14-DAY REVENUE TREND
+    // ============================================
+    $stmt = $conn->prepare("
+        SELECT DATE(sale_date) AS day, 
+               COUNT(*) AS txns,
+               COALESCE(SUM(total_amount), 0) AS revenue
+        FROM sales
+        WHERE sale_date >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
+          AND status = 'completed'
+        GROUP BY DATE(sale_date)
+        ORDER BY day ASC
+    ");
     $stmt->execute();
-    $sales_chart_data = $stmt->fetchAll();
-    
-    // Top selling products
-    $stmt = $conn->prepare("SELECT p.product_name, SUM(si.quantity) as total_sold, SUM(si.total_price) as revenue FROM sale_items si JOIN products p ON si.product_id = p.product_id JOIN sales s ON si.sale_id = s.sale_id WHERE s.status = 'completed' AND MONTH(s.sale_date) = MONTH(CURDATE()) GROUP BY p.product_id ORDER BY total_sold DESC LIMIT 5");
+    $trend_raw = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Fill in missing days with 0
+    $trend_by_date = [];
+    foreach ($trend_raw as $row) {
+        $trend_by_date[$row['day']] = $row;
+    }
+    $trend_labels = [];
+    $trend_values = [];
+    for ($i = 13; $i >= 0; $i--) {
+        $day = date('Y-m-d', strtotime("-$i days"));
+        $trend_labels[] = date('M j', strtotime($day));
+        $trend_values[] = isset($trend_by_date[$day]) ? floatval($trend_by_date[$day]['revenue']) : 0;
+    }
+
+    // Sparkline data for today's card (7 days)
+    $spark_labels = array_slice($trend_labels, -7);
+    $spark_values = array_slice($trend_values, -7);
+
+    // ============================================
+    // CHART: PAYMENT METHOD BREAKDOWN
+    // ============================================
+    $stmt = $conn->prepare("
+        SELECT payment_method, COUNT(*) AS count, COALESCE(SUM(total_amount), 0) AS total
+        FROM sales
+        WHERE MONTH(sale_date) = MONTH(CURDATE())
+          AND YEAR(sale_date) = YEAR(CURDATE())
+          AND status = 'completed'
+        GROUP BY payment_method
+        ORDER BY total DESC
+    ");
     $stmt->execute();
-    $top_products = $stmt->fetchAll();
-    
-    // Recent sales
-    $stmt = $conn->prepare("SELECT s.*, st.store_name, c.customer_name, u.full_name as served_by_name FROM sales s LEFT JOIN stores st ON s.store_id = st.store_id LEFT JOIN customers c ON s.customer_id = c.customer_id LEFT JOIN users u ON s.served_by = u.user_id ORDER BY s.sale_date DESC LIMIT 10");
+    $payment_breakdown = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // ============================================
+    // CHART: TOP PRODUCTS
+    // ============================================
+    $stmt = $conn->prepare("
+        SELECT p.product_name, SUM(si.quantity) AS total_sold,
+               SUM(si.total_price) AS revenue
+        FROM sale_items si
+        JOIN products p ON si.product_id = p.product_id
+        JOIN sales s ON si.sale_id = s.sale_id
+        WHERE s.status = 'completed'
+          AND MONTH(s.sale_date) = MONTH(CURDATE())
+        GROUP BY p.product_id, p.product_name
+        ORDER BY total_sold DESC
+        LIMIT 8
+    ");
+    $stmt->execute();
+    $top_products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // ============================================
+    // CHART: SALES BY HOUR OF DAY
+    // ============================================
+    $stmt = $conn->prepare("
+        SELECT HOUR(sale_date) AS hr, COUNT(*) AS count,
+               COALESCE(SUM(total_amount), 0) AS revenue
+        FROM sales
+        WHERE MONTH(sale_date) = MONTH(CURDATE())
+          AND YEAR(sale_date) = YEAR(CURDATE())
+          AND status = 'completed'
+        GROUP BY HOUR(sale_date)
+        ORDER BY hr ASC
+    ");
+    $stmt->execute();
+    $hourly_raw = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Fill all 24 hours, or just 6am–10pm for typical shop hours
+    $hourly_by_hr = [];
+    foreach ($hourly_raw as $row) {
+        $hourly_by_hr[$row['hr']] = $row;
+    }
+    $hourly_labels = [];
+    $hourly_values = [];
+    for ($h = 6; $h <= 22; $h++) {
+        $hourly_labels[] = sprintf('%02d:00', $h);
+        $hourly_values[] = isset($hourly_by_hr[$h]) ? floatval($hourly_by_hr[$h]['revenue']) : 0;
+    }
+
+    // ============================================
+    // RECENT SALES
+    // ============================================
+    $stmt = $conn->prepare("
+        SELECT s.*, st.store_name, c.customer_name, u.full_name AS served_by_name
+        FROM sales s
+        LEFT JOIN stores st ON s.store_id = st.store_id
+        LEFT JOIN customers c ON s.customer_id = c.customer_id
+        LEFT JOIN users u ON s.served_by = u.user_id
+        ORDER BY s.sale_date DESC
+        LIMIT 10
+    ");
     $stmt->execute();
     $recent_sales = $stmt->fetchAll();
-    
-} catch(PDOException $e) {
+
+} catch (PDOException $e) {
     die("Error: " . $e->getMessage());
 }
 
-// Prepare chart data
-$chart_labels = [];
-$chart_values = [];
-foreach ($sales_chart_data as $data) {
-    $chart_labels[] = date('M d', strtotime($data['date']));
-    $chart_values[] = $data['total'];
+// Helper: format money for compact display
+function short_money($amount) {
+    $amount = floatval($amount);
+    if ($amount >= 1000000) return number_format($amount / 1000000, 1) . 'M';
+    if ($amount >= 1000)    return number_format($amount / 1000, 0) . 'K';
+    return number_format($amount, 0);
 }
 ?>
 
 <?php include '../includes/header.php'; ?>
 <?php include '../includes/admin_sidebar.php'; ?>
 
-<div class="main-content">
-       
-    <div class="content-area">
-              
-        <!-- Welcome Banner -->
-        <div class="welcome-banner mb-4">
-            <div class="welcome-content">
-                <div class="welcome-text">
-                    <h2>Welcome back, <span><?php echo explode(' ', $_SESSION['full_name'])[0]; ?></span>! 👋</h2>
-                    <p>Here's what's happening with your business today.</p>
-                </div>
-                <div class="welcome-actions">
-                    <a href="Point_Of_Sale" class="btn btn-primary btn-lg">
-                        <i class="fas fa-cash-register me-2"></i>New Sale
-                    </a>
-                    <a href="Sales_Report" class="btn btn-outline-light btn-lg">
-                        <i class="fas fa-chart-line me-2"></i>View Reports
-                    </a>
-                </div>
-            </div>
-            <div class="welcome-decoration">
-                <div class="circle circle-1"></div>
-                <div class="circle circle-2"></div>
-                <div class="circle circle-3"></div>
-            </div>
-        </div>
-        
-        <!-- Expiring Products Alert -->
-        <?php if ($expiring_products['count'] > 0): ?>
-        <div class="alert-cyber alert-cyber-warning mb-4">
-            <div class="alert-icon">
-                <i class="fas fa-exclamation-triangle"></i>
-            </div>
-            <div class="alert-content">
-                <h5>Products Expiring Soon!</h5>
-                <p>
-                    <strong><?php echo $expiring_products['count']; ?> product batches</strong> will expire within the next 30 days.
-                    <span class="text-danger">Value at risk: <strong>UGX <?php echo number_format($expiring_products['total_value'], 0); ?></strong></span>
-                </p>
-                <a href="Expiring_Stock" class="btn btn-warning btn-sm">
-                    <i class="fas fa-eye me-1"></i>View & Manage
-                </a>
-            </div>
-            <button type="button" class="alert-close" data-bs-dismiss="alert">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-        <?php endif; ?>
-        
-        <!-- Statistics Cards -->
-        <div class="row g-4 mb-4">
-            <div class="col-xl-3 col-md-6">
-                <div class="stat-card stat-card-purple">
-                    <div class="stat-icon">
-                        <i class="fas fa-shopping-cart"></i>
-                    </div>
-                    <div class="stat-content">
-                        <span class="stat-label">Today's Sales</span>
-                        <h3 class="stat-value"><?php echo number_format($today_sales['count']); ?></h3>
-                        <span class="stat-meta">
-                            <i class="fas fa-money-bill-wave"></i>
-                            UGX <?php echo format_currency($today_sales['total']); ?>
-                        </span>
-                    </div>
-                    <div class="stat-glow"></div>
-                </div>
-            </div>
-            
-            <div class="col-xl-3 col-md-6">
-                <div class="stat-card stat-card-orange">
-                    <div class="stat-icon">
-                        <i class="fas fa-chart-line"></i>
-                    </div>
-                    <div class="stat-content">
-                        <span class="stat-label">This Month's Revenue</span>
-                        <h3 class="stat-value">UGX <?php echo format_currency($month_sales['total']); ?></h3>
-                        <span class="stat-meta">
-                            <i class="fas fa-receipt"></i>
-                            <?php echo number_format($month_sales['count']); ?> transactions
-                        </span>
-                    </div>
-                    <div class="stat-glow"></div>
-                </div>
-            </div>
-            
-            <div class="col-xl-3 col-md-6">
-                <div class="stat-card stat-card-cyan">
-                    <div class="stat-icon">
-                        <i class="fas fa-box"></i>
-                    </div>
-                    <div class="stat-content">
-                        <span class="stat-label">Total Products</span>
-                        <h3 class="stat-value"><?php echo number_format($total_products['count']); ?></h3>
-                        <span class="stat-meta <?php echo $low_stock['count'] > 0 ? 'text-danger' : ''; ?>">
-                            <i class="fas fa-exclamation-triangle"></i>
-                            <?php echo $low_stock['count']; ?> low stock
-                        </span>
-                    </div>
-                    <div class="stat-glow"></div>
-                </div>
-            </div>
-            
-            <div class="col-xl-3 col-md-6">
-                <div class="stat-card stat-card-green">
-                    <div class="stat-icon">
-                        <i class="fas fa-users"></i>
-                    </div>
-                    <div class="stat-content">
-                        <span class="stat-label">Total Customers</span>
-                        <h3 class="stat-value"><?php echo number_format($total_customers['count']); ?></h3>
-                        <span class="stat-meta">
-                            <i class="fas fa-user-check"></i>
-                            Active customers
-                        </span>
-                    </div>
-                    <div class="stat-glow"></div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Charts & Top Products Row -->
-        <div class="row g-4 mb-4">
-            <!-- Sales Chart -->
-            <div class="col-lg-8">
-                <div class="card cyber-card h-100">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>
-                            <i class="fas fa-chart-area me-2"></i>
-                            Sales Overview
-                        </span>
-                        <span class="badge bg-light text-dark">Last 7 Days</span>
-                    </div>
-                    <div class="card-body">
-                        <canvas id="salesChart" height="100"></canvas>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Top Products -->
-            <div class="col-lg-4">
-                <div class="card cyber-card h-100">
-                    <div class="card-header">
-                        <i class="fas fa-fire me-2"></i>
-                        Top Selling Products
-                    </div>
-                    <div class="card-body p-0">
-                        <?php if (count($top_products) > 0): ?>
-                            <div class="top-products-list">
-                                <?php $rank = 1; foreach ($top_products as $product): ?>
-                                    <div class="top-product-item">
-                                        <div class="rank rank-<?php echo $rank; ?>"><?php echo $rank++; ?></div>
-                                        <div class="product-info">
-                                            <h6><?php echo htmlspecialchars($product['product_name']); ?></h6>
-                                            <small><?php echo $product['total_sold']; ?> units sold</small>
-                                        </div>
-                                        <div class="product-revenue">
-                                            UGX <?php echo format_currency($product['revenue']); ?>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php else: ?>
-                            <div class="empty-state">
-                                <i class="fas fa-chart-bar"></i>
-                                <p>No sales data available</p>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Quick Actions -->
-        <div class="row g-4 mb-4">
-            <div class="col-12">
-                <div class="card cyber-card">
-                    <div class="card-header">
-                        <i class="fas fa-bolt me-2"></i>
-                        Quick Actions
-                    </div>
-                    <div class="card-body">
-                        <div class="quick-actions-grid">
-                            <a href="Point_Of_Sale" class="quick-action-btn quick-action-purple">
-                                <i class="fas fa-cash-register"></i>
-                                <span>New Sale</span>
-                            </a>
-                            <a href="Products" class="quick-action-btn quick-action-orange">
-                                <i class="fas fa-plus-circle"></i>
-                                <span>Add Product</span>
-                            </a>
-                            <a href="Customers" class="quick-action-btn quick-action-cyan">
-                                <i class="fas fa-user-plus"></i>
-                                <span>Add Customer</span>
-                            </a>
-                            <a href="Sales_Report" class="quick-action-btn quick-action-green">
-                                <i class="fas fa-chart-bar"></i>
-                                <span>View Reports</span>
-                            </a>
-                            <a href="Client_Orders" class="quick-action-btn quick-action-pink">
-                                <i class="fas fa-shopping-bag"></i>
-                                <span>Client Orders</span>
-                            </a>
-                            <a href="Stock_Purchases" class="quick-action-btn quick-action-blue">
-                                <i class="fas fa-truck"></i>
-                                <span>New Purchase</span>
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Recent Sales -->
-        <div class="row g-4">
-            <div class="col-12">
-                <div class="card cyber-card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>
-                            <i class="fas fa-receipt me-2"></i>
-                            Recent Sales
-                        </span>
-                        <a href="Sales_Records" class="btn btn-sm btn-outline-light">
-                            View All <i class="fas fa-arrow-right ms-1"></i>
-                        </a>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table cyber-table mb-0">
-                                <thead>
-                                    <tr>
-                                        <th>Invoice #</th>
-                                        <th>Date & Time</th>
-                                        <th>Customer</th>
-                                        <th>Store</th>
-                                        <th>Served By</th>
-                                        <th>Amount</th>
-                                        <th>Payment</th>
-                                        <th>Status</th>
-                                        <th class="text-center">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php if (count($recent_sales) > 0): ?>
-                                        <?php foreach ($recent_sales as $sale): ?>
-                                            <tr>
-                                                <td>
-                                                    <span class="invoice-number"><?php echo htmlspecialchars($sale['invoice_number']); ?></span>
-                                                </td>
-                                                <td>
-                                                    <div class="date-cell">
-                                                        <span class="date"><?php echo date('M d, Y', strtotime($sale['sale_date'])); ?></span>
-                                                        <span class="time"><?php echo date('H:i A', strtotime($sale['sale_date'])); ?></span>
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    <?php if ($sale['customer_name']): ?>
-                                                        <span class="customer-name"><?php echo htmlspecialchars($sale['customer_name']); ?></span>
-                                                    <?php else: ?>
-                                                        <span class="text-muted">Walk-in</span>
-                                                    <?php endif; ?>
-                                                </td>
-                                                <td>
-                                                    <span class="store-badge"><?php echo htmlspecialchars($sale['store_name']); ?></span>
-                                                </td>
-                                                <td><?php echo htmlspecialchars($sale['served_by_name']); ?></td>
-                                                <td>
-                                                    <span class="amount">UGX <?php echo format_currency($sale['total_amount']); ?></span>
-                                                </td>
-                                                <td>
-                                                    <span class="payment-badge payment-<?php echo $sale['payment_method']; ?>">
-                                                        <?php echo ucfirst(str_replace('_', ' ', $sale['payment_method'])); ?>
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <span class="status-badge status-<?php echo $sale['status']; ?>">
-                                                        <?php echo ucfirst($sale['status']); ?>
-                                                    </span>
-                                                </td>
-                                                <td class="text-center">
-                                                    <a href="view-sale.php?id=<?php echo $sale['sale_id']; ?>" class="btn-action btn-view" title="View">
-                                                        <i class="fas fa-eye"></i>
-                                                    </a>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <tr>
-                                            <td colspan="9">
-                                                <div class="empty-state">
-                                                    <i class="fas fa-receipt"></i>
-                                                    <p>No recent sales</p>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    <?php endif; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Dashboard Specific Styles -->
 <style>
 /* ============================================
-   WELCOME BANNER
+   DASHBOARD — MODERN UI
    ============================================ */
-.welcome-banner {
-    background: linear-gradient(135deg, var(--cyber-dark) 0%, var(--cyber-gray) 100%);
-    border-radius: var(--radius-lg);
-    padding: 32px;
-    position: relative;
-    overflow: hidden;
-    box-shadow: var(--shadow-lg);
+
+.dash-wrap {
+    background: linear-gradient(180deg, #F7FAFC 0%, #EDF2F7 100%);
+    min-height: calc(100vh - 60px);
 }
 
-.welcome-content {
+/* ---------- Welcome Banner ---------- */
+.dash-hero {
+    background: linear-gradient(135deg, #1A202C 0%, #2D3748 50%, #4A5568 100%);
+    border-radius: 20px;
+    padding: 32px 36px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 20px 40px rgba(26,32,44,0.15);
+    color: #fff;
+    margin-bottom: 28px;
+}
+
+.dash-hero::before {
+    content: '';
+    position: absolute;
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, rgba(237,137,54,0.25), transparent 70%);
+    top: -200px; right: -100px;
+    border-radius: 50%;
+    filter: blur(40px);
+}
+
+.dash-hero::after {
+    content: '';
+    position: absolute;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(107,70,193,0.3), transparent 70%);
+    bottom: -150px; left: -50px;
+    border-radius: 50%;
+    filter: blur(50px);
+}
+
+.dash-hero-content {
+    position: relative;
+    z-index: 2;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    position: relative;
-    z-index: 2;
+    gap: 24px;
     flex-wrap: wrap;
-    gap: 20px;
 }
 
-.welcome-text h2 {
-    color: var(--cyber-white);
+.dash-hero-title {
     font-size: 1.75rem;
-    font-weight: 700;
-    margin-bottom: 8px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    margin: 0 0 6px;
 }
 
-.welcome-text h2 span {
-    background: linear-gradient(135deg, var(--cyber-orange), var(--cyber-orange-light));
+.dash-hero-title span {
+    background: linear-gradient(135deg, #ED8936, #FBD38D);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
 
-.welcome-text p {
-    color: rgba(255, 255, 255, 0.7);
-    margin: 0;
+.dash-hero-subtitle {
+    color: rgba(255,255,255,0.7);
     font-size: 0.95rem;
+    margin: 0;
 }
 
-.welcome-actions {
+.dash-hero-actions {
     display: flex;
     gap: 12px;
+    flex-wrap: wrap;
 }
 
-.welcome-actions .btn {
-    padding: 12px 24px;
-    font-weight: 600;
-    border-radius: var(--radius-md);
-}
-
-.welcome-actions .btn-primary {
-    background: linear-gradient(135deg, var(--cyber-purple), var(--cyber-purple-dark));
-    border: none;
-    box-shadow: 0 4px 15px rgba(107, 70, 193, 0.4);
-}
-
-.welcome-actions .btn-primary:hover {
-    background: linear-gradient(135deg, var(--cyber-purple-dark), var(--cyber-purple));
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(107, 70, 193, 0.5);
-}
-
-.welcome-actions .btn-outline-light {
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    color: var(--cyber-white);
-}
-
-.welcome-actions .btn-outline-light:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.5);
-}
-
-.welcome-decoration {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    pointer-events: none;
-}
-
-.welcome-decoration .circle {
-    position: absolute;
-    border-radius: 50%;
-    opacity: 0.1;
-}
-
-.welcome-decoration .circle-1 {
-    width: 300px;
-    height: 300px;
-    background: var(--cyber-purple);
-    top: -150px;
-    right: -50px;
-}
-
-.welcome-decoration .circle-2 {
-    width: 200px;
-    height: 200px;
-    background: var(--cyber-orange);
-    bottom: -100px;
-    right: 150px;
-}
-
-.welcome-decoration .circle-3 {
-    width: 150px;
-    height: 150px;
-    background: var(--cyber-cyan);
-    top: 50%;
-    right: 300px;
-    transform: translateY(-50%);
-}
-
-/* ============================================
-   USER BADGE
-   ============================================ */
-.user-badge {
-    display: flex;
+.dash-hero-btn {
+    display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 16px;
-    background: linear-gradient(135deg, var(--cyber-purple), var(--cyber-purple-dark));
-    color: var(--cyber-white);
-    border-radius: 30px;
+    padding: 12px 22px;
+    border-radius: 12px;
+    font-weight: 700;
     font-size: 0.85rem;
-    font-weight: 600;
-    box-shadow: 0 4px 15px rgba(107, 70, 193, 0.3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    transition: all 0.25s ease;
 }
 
-.user-badge i {
-    font-size: 1.1rem;
+.dash-hero-btn-primary {
+    background: linear-gradient(135deg, #6B46C1, #553C9A);
+    color: #fff;
+    box-shadow: 0 6px 20px rgba(107,70,193,0.4);
+}
+.dash-hero-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 28px rgba(107,70,193,0.55);
+    color: #fff;
 }
 
-/* ============================================
-   STAT CARDS
-   ============================================ */
-.stat-card {
-    background: var(--cyber-white);
-    border-radius: var(--radius-lg);
-    padding: 24px;
+.dash-hero-btn-ghost {
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    border: 1.5px solid rgba(255,255,255,0.2);
+}
+.dash-hero-btn-ghost:hover {
+    background: rgba(255,255,255,0.18);
+    border-color: rgba(255,255,255,0.4);
+    color: #fff;
+}
+
+/* ---------- KPI Cards ---------- */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 28px;
+}
+
+@media (max-width: 1199px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 575px)  { .kpi-grid { grid-template-columns: 1fr; } }
+
+.kpi {
+    background: #fff;
+    border-radius: 16px;
+    padding: 22px;
     position: relative;
     overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+    border: 1px solid #E2E8F0;
+    transition: all 0.3s ease;
+    min-height: 170px;
     display: flex;
+    flex-direction: column;
+}
+
+.kpi:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.1);
+}
+
+.kpi-header {
+    display: flex;
+    justify-content: space-between;
     align-items: flex-start;
-    gap: 20px;
-    box-shadow: var(--shadow-md);
-    transition: all var(--transition-normal);
-    border: 1px solid var(--cyber-border);
+    margin-bottom: 14px;
 }
 
-.stat-card:hover {
-    transform: translateY(-5px);
-    box-shadow: var(--shadow-lg);
-}
-
-.stat-card-purple { border-left: 4px solid var(--cyber-purple); }
-.stat-card-orange { border-left: 4px solid var(--cyber-orange); }
-.stat-card-cyan { border-left: 4px solid var(--cyber-cyan); }
-.stat-card-green { border-left: 4px solid var(--cyber-green); }
-
-.stat-icon {
-    width: 60px;
-    height: 60px;
-    border-radius: var(--radius-md);
+.kpi-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.5rem;
-    flex-shrink: 0;
+    font-size: 1.15rem;
 }
 
-.stat-card-purple .stat-icon {
-    background: linear-gradient(135deg, rgba(107, 70, 193, 0.15), rgba(107, 70, 193, 0.05));
-    color: var(--cyber-purple);
-}
+.kpi-purple .kpi-icon  { background: rgba(107,70,193,0.12); color: #6B46C1; }
+.kpi-orange .kpi-icon  { background: rgba(237,137,54,0.12); color: #ED8936; }
+.kpi-pink   .kpi-icon  { background: rgba(237,100,166,0.12); color: #ED64A6; }
+.kpi-indigo .kpi-icon  { background: rgba(90,103,216,0.12); color: #5A67D8; }
+.kpi-green  .kpi-icon  { background: rgba(72,187,120,0.12); color: #48BB78; }
+.kpi-cyan   .kpi-icon  { background: rgba(0,181,216,0.12); color: #00B5D8; }
 
-.stat-card-orange .stat-icon {
-    background: linear-gradient(135deg, rgba(237, 137, 54, 0.15), rgba(237, 137, 54, 0.05));
-    color: var(--cyber-orange);
+.kpi-delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 800;
 }
+.kpi-delta.up   { background: rgba(72,187,120,0.15); color: #2F855A; }
+.kpi-delta.down { background: rgba(229,62,62,0.15);  color: #C53030; }
+.kpi-delta.flat { background: rgba(113,128,150,0.15); color: #4A5568; }
 
-.stat-card-cyan .stat-icon {
-    background: linear-gradient(135deg, rgba(0, 181, 216, 0.15), rgba(0, 181, 216, 0.05));
-    color: var(--cyber-cyan);
-}
-
-.stat-card-green .stat-icon {
-    background: linear-gradient(135deg, rgba(72, 187, 120, 0.15), rgba(72, 187, 120, 0.05));
-    color: var(--cyber-green);
-}
-
-.stat-content {
-    flex: 1;
-    min-width: 0;
-}
-
-.stat-label {
-    font-size: 0.8rem;
-    font-weight: 600;
+.kpi-label {
+    font-size: 0.72rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--cyber-gray-lighter);
-    display: block;
+    letter-spacing: 0.6px;
+    color: #718096;
+    margin-bottom: 6px;
+}
+
+.kpi-value {
+    font-size: 1.65rem;
+    font-weight: 800;
+    color: #1A202C;
+    line-height: 1.1;
+    font-family: 'Courier New', monospace;
+    letter-spacing: -0.5px;
     margin-bottom: 4px;
 }
 
-.stat-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--cyber-dark);
-    margin-bottom: 6px;
-    line-height: 1.2;
-}
-
-.stat-meta {
-    font-size: 0.8rem;
-    color: var(--cyber-gray-lighter);
+.kpi-sub {
+    font-size: 0.78rem;
+    color: #718096;
     display: flex;
     align-items: center;
     gap: 6px;
 }
 
-.stat-meta i {
-    font-size: 0.75rem;
-}
-
-.stat-glow {
+.kpi-sparkline {
     position: absolute;
-    top: -50%;
-    right: -50%;
-    width: 100%;
-    height: 100%;
-    border-radius: 50%;
-    opacity: 0;
-    transition: opacity var(--transition-normal);
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 44px;
+    opacity: 0.6;
     pointer-events: none;
 }
 
-.stat-card-purple .stat-glow { background: radial-gradient(circle, rgba(107, 70, 193, 0.2), transparent 70%); }
-.stat-card-orange .stat-glow { background: radial-gradient(circle, rgba(237, 137, 54, 0.2), transparent 70%); }
-.stat-card-cyan .stat-glow { background: radial-gradient(circle, rgba(0, 181, 216, 0.2), transparent 70%); }
-.stat-card-green .stat-glow { background: radial-gradient(circle, rgba(72, 187, 120, 0.2), transparent 70%); }
-
-.stat-card:hover .stat-glow {
-    opacity: 1;
-}
-
-/* ============================================
-   CYBER CARD
-   ============================================ */
-.cyber-card {
-    background: var(--cyber-white);
-    border: 1px solid var(--cyber-border);
-    border-radius: var(--radius-lg);
+/* ---------- Chart Cards ---------- */
+.chart-card {
+    background: #fff;
+    border-radius: 16px;
+    border: 1px solid #E2E8F0;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.04);
     overflow: hidden;
-    box-shadow: var(--shadow-md);
-    transition: all var(--transition-normal);
-}
-
-.cyber-card:hover {
-    box-shadow: var(--shadow-lg);
-}
-
-.cyber-card .card-header {
-    background: linear-gradient(135deg, var(--cyber-dark) 0%, var(--cyber-gray) 100%);
-    color: var(--cyber-white);
-    padding: 16px 20px;
-    border: none;
-    font-weight: 600;
+    height: 100%;
     display: flex;
+    flex-direction: column;
+    transition: box-shadow 0.3s ease;
+}
+.chart-card:hover {
+    box-shadow: 0 12px 32px rgba(0,0,0,0.08);
+}
+
+.chart-card-header {
+    padding: 18px 22px;
+    border-bottom: 1px solid #EDF2F7;
+    display: flex;
+    justify-content: space-between;
     align-items: center;
 }
 
-.cyber-card .card-header i {
-    color: var(--cyber-orange);
-}
-
-/* ============================================
-   ALERT CYBER
-   ============================================ */
-.alert-cyber {
-    display: flex;
-    align-items: flex-start;
-    gap: 16px;
-    padding: 20px;
-    border-radius: var(--radius-lg);
-    position: relative;
-    overflow: hidden;
-}
-
-.alert-cyber-warning {
-    background: linear-gradient(135deg, rgba(237, 137, 54, 0.1), rgba(237, 137, 54, 0.05));
-    border-left: 4px solid var(--cyber-orange);
-}
-
-.alert-cyber .alert-icon {
-    width: 50px;
-    height: 50px;
-    background: linear-gradient(135deg, var(--cyber-orange), var(--cyber-orange-dark));
-    border-radius: var(--radius-md);
+.chart-card-title {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: #1A202C;
     display: flex;
     align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 1.25rem;
-    flex-shrink: 0;
-    box-shadow: 0 4px 15px rgba(237, 137, 54, 0.3);
+    gap: 10px;
 }
 
-.alert-cyber .alert-content {
-    flex: 1;
-}
-
-.alert-cyber .alert-content h5 {
-    color: var(--cyber-orange-dark);
-    font-weight: 700;
-    margin-bottom: 8px;
-    font-size: 1.1rem;
-}
-
-.alert-cyber .alert-content p {
-    margin-bottom: 12px;
-    color: var(--cyber-gray);
-    font-size: 0.9rem;
-}
-
-.alert-cyber .alert-close {
-    background: none;
-    border: none;
-    color: var(--cyber-gray-lighter);
-    cursor: pointer;
-    padding: 4px;
+.chart-card-title i {
+    color: #6B46C1;
     font-size: 1rem;
-    transition: color var(--transition-fast);
 }
 
-.alert-cyber .alert-close:hover {
-    color: var(--cyber-orange);
+.chart-card-badge {
+    font-size: 0.68rem;
+    font-weight: 800;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: rgba(107,70,193,0.1);
+    color: #6B46C1;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
-/* ============================================
-   TOP PRODUCTS LIST
-   ============================================ */
-.top-products-list {
-    padding: 8px 0;
-}
-
-.top-product-item {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--cyber-border);
-    transition: background var(--transition-fast);
-}
-
-.top-product-item:last-child {
-    border-bottom: none;
-}
-
-.top-product-item:hover {
-    background: rgba(107, 70, 193, 0.03);
-}
-
-.top-product-item .rank {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 0.85rem;
-    flex-shrink: 0;
-}
-
-.rank-1 { background: linear-gradient(135deg, #FFD700, #FFA500); color: #7B341E; }
-.rank-2 { background: linear-gradient(135deg, #C0C0C0, #A0A0A0); color: #2D3748; }
-.rank-3 { background: linear-gradient(135deg, #CD7F32, #A0522D); color: white; }
-.rank-4, .rank-5 { background: var(--cyber-light-gray); color: var(--cyber-gray); }
-
-.top-product-item .product-info {
+.chart-card-body {
+    padding: 20px 22px;
     flex: 1;
-    min-width: 0;
+    min-height: 260px;
+    position: relative;
 }
 
-.top-product-item .product-info h6 {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--cyber-dark);
-    margin-bottom: 2px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+.chart-card-body canvas {
+    max-height: 280px;
 }
 
-.top-product-item .product-info small {
-    font-size: 0.75rem;
-    color: var(--cyber-gray-lighter);
-}
-
-.top-product-item .product-revenue {
-    font-weight: 700;
-    font-size: 0.85rem;
-    color: var(--cyber-purple);
-    white-space: nowrap;
-}
-
-/* ============================================
-   QUICK ACTIONS GRID
-   ============================================ */
-.quick-actions-grid {
+/* ---------- Quick Actions ---------- */
+.qa-grid {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
-    gap: 16px;
+    gap: 14px;
 }
+@media (max-width: 991px) { .qa-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 575px) { .qa-grid { grid-template-columns: repeat(2, 1fr); } }
 
-@media (max-width: 1200px) {
-    .quick-actions-grid {
-        grid-template-columns: repeat(3, 1fr);
-    }
-}
-
-@media (max-width: 768px) {
-    .quick-actions-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-.quick-action-btn {
+.qa-btn {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 10px;
-    padding: 24px 16px;
-    border-radius: var(--radius-lg);
+    padding: 22px 14px;
+    border-radius: 14px;
     text-decoration: none;
-    color: var(--cyber-white);
-    font-weight: 600;
-    font-size: 0.85rem;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.8rem;
     text-align: center;
-    transition: all var(--transition-normal);
+    transition: all 0.25s ease;
     position: relative;
     overflow: hidden;
 }
 
-.quick-action-btn::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
-    opacity: 0;
-    transition: opacity var(--transition-normal);
+.qa-btn i {
+    font-size: 1.6rem;
+    transition: transform 0.25s ease;
 }
 
-.quick-action-btn:hover::before {
-    opacity: 1;
+.qa-btn:hover {
+    transform: translateY(-4px);
+    color: #fff;
+    box-shadow: 0 12px 25px rgba(0,0,0,0.15);
 }
 
-.quick-action-btn i {
-    font-size: 1.75rem;
-    transition: transform var(--transition-normal);
-}
+.qa-btn:hover i { transform: scale(1.15); }
 
-.quick-action-btn:hover {
-    transform: translateY(-5px);
-    color: var(--cyber-white);
-}
+.qa-purple { background: linear-gradient(135deg,#6B46C1,#553C9A); }
+.qa-orange { background: linear-gradient(135deg,#ED8936,#DD6B20); }
+.qa-cyan   { background: linear-gradient(135deg,#00B5D8,#0987A0); }
+.qa-green  { background: linear-gradient(135deg,#48BB78,#38A169); }
+.qa-pink   { background: linear-gradient(135deg,#ED64A6,#D53F8C); }
+.qa-blue   { background: linear-gradient(135deg,#4299E1,#3182CE); }
 
-.quick-action-btn:hover i {
-    transform: scale(1.15);
-}
-
-.quick-action-purple {
-    background: linear-gradient(135deg, var(--cyber-purple), var(--cyber-purple-dark));
-    box-shadow: 0 4px 15px rgba(107, 70, 193, 0.3);
-}
-
-.quick-action-purple:hover {
-    box-shadow: 0 8px 25px rgba(107, 70, 193, 0.4);
-}
-
-.quick-action-orange {
-    background: linear-gradient(135deg, var(--cyber-orange), var(--cyber-orange-dark));
-    box-shadow: 0 4px 15px rgba(237, 137, 54, 0.3);
-}
-
-.quick-action-orange:hover {
-    box-shadow: 0 8px 25px rgba(237, 137, 54, 0.4);
-}
-
-.quick-action-cyan {
-    background: linear-gradient(135deg, var(--cyber-cyan), var(--cyber-cyan-dark));
-    box-shadow: 0 4px 15px rgba(0, 181, 216, 0.3);
-}
-
-.quick-action-cyan:hover {
-    box-shadow: 0 8px 25px rgba(0, 181, 216, 0.4);
-}
-
-.quick-action-green {
-    background: linear-gradient(135deg, var(--cyber-green), var(--cyber-green-dark));
-    box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);
-}
-
-.quick-action-green:hover {
-    box-shadow: 0 8px 25px rgba(72, 187, 120, 0.4);
-}
-
-.quick-action-pink {
-    background: linear-gradient(135deg, var(--cyber-pink), #D53F8C);
-    box-shadow: 0 4px 15px rgba(237, 100, 166, 0.3);
-}
-
-.quick-action-pink:hover {
-    box-shadow: 0 8px 25px rgba(237, 100, 166, 0.4);
-}
-
-.quick-action-blue {
-    background: linear-gradient(135deg, #4299E1, #3182CE);
-    box-shadow: 0 4px 15px rgba(66, 153, 225, 0.3);
-}
-
-.quick-action-blue:hover {
-    box-shadow: 0 8px 25px rgba(66, 153, 225, 0.4);
-}
-
-/* ============================================
-   CYBER TABLE
-   ============================================ */
-.cyber-table {
+/* ---------- Recent Sales Table ---------- */
+.rs-table {
     width: 100%;
     border-collapse: collapse;
+    font-size: 0.85rem;
 }
 
-.cyber-table thead th {
-    background: var(--cyber-light);
-    color: var(--cyber-gray);
-    font-size: 0.75rem;
-    font-weight: 700;
+.rs-table thead th {
+    background: #F7FAFC;
+    color: #4A5568;
+    font-size: 0.7rem;
+    font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    padding: 14px 16px;
-    border-bottom: 2px solid var(--cyber-border);
+    padding: 12px 14px;
+    border-bottom: 2px solid #E2E8F0;
+    text-align: left;
     white-space: nowrap;
 }
 
-.cyber-table tbody td {
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--cyber-border);
+.rs-table tbody td {
+    padding: 12px 14px;
+    border-bottom: 1px solid #EDF2F7;
     vertical-align: middle;
-    font-size: 0.875rem;
 }
 
-.cyber-table tbody tr {
-    transition: background var(--transition-fast);
-}
+.rs-table tbody tr:hover { background: #F7FAFC; }
 
-.cyber-table tbody tr:hover {
-    background: rgba(107, 70, 193, 0.03);
-}
-
-.cyber-table tbody tr:last-child td {
-    border-bottom: none;
-}
-
-/* Table Elements */
-.invoice-number {
+.inv-code {
     font-family: 'Courier New', monospace;
     font-weight: 700;
-    color: var(--cyber-purple);
-    font-size: 0.85rem;
+    color: #6B46C1;
+    font-size: 0.8rem;
 }
 
-.date-cell {
-    display: flex;
-    flex-direction: column;
-}
-
-.date-cell .date {
-    font-weight: 600;
-    color: var(--cyber-dark);
-    font-size: 0.85rem;
-}
-
-.date-cell .time {
-    font-size: 0.75rem;
-    color: var(--cyber-gray-lighter);
-}
-
-.customer-name {
-    font-weight: 600;
-    color: var(--cyber-dark);
-}
-
-.store-badge {
+.rs-badge {
     display: inline-block;
-    padding: 4px 10px;
-    background: var(--cyber-light-gray);
+    padding: 3px 10px;
     border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--cyber-gray);
-}
-
-.amount {
+    font-size: 0.68rem;
     font-weight: 700;
-    color: var(--cyber-dark);
-}
-
-.payment-badge {
-    display: inline-block;
-    padding: 5px 12px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
     text-transform: capitalize;
 }
+.rs-badge-cash     { background: rgba(72,187,120,0.15); color: #2F855A; }
+.rs-badge-momo     { background: rgba(237,137,54,0.15); color: #C05621; }
+.rs-badge-card     { background: rgba(66,153,225,0.15); color: #2B6CB0; }
+.rs-badge-bank     { background: rgba(107,70,193,0.15); color: #553C9A; }
+.rs-badge-credit   { background: rgba(229,62,62,0.15);  color: #C53030; }
+.rs-badge-completed { background: rgba(72,187,120,0.15); color: #2F855A; }
 
-.payment-cash { background: rgba(72, 187, 120, 0.15); color: var(--cyber-green-dark); }
-.payment-card { background: rgba(66, 153, 225, 0.15); color: #2B6CB0; }
-.payment-mobile_money { background: rgba(237, 137, 54, 0.15); color: var(--cyber-orange-dark); }
-.payment-bank_transfer { background: rgba(107, 70, 193, 0.15); color: var(--cyber-purple-dark); }
-.payment-credit { background: rgba(229, 62, 62, 0.15); color: var(--cyber-red-dark); }
-
-.status-badge {
-    display: inline-block;
-    padding: 5px 12px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: capitalize;
+/* ---------- Expiring Alert ---------- */
+.dash-alert {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 18px 22px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(237,137,54,0.08), rgba(237,137,54,0.03));
+    border-left: 4px solid #ED8936;
+    margin-bottom: 24px;
 }
 
-.status-completed { background: rgba(72, 187, 120, 0.15); color: var(--cyber-green-dark); }
-.status-pending { background: rgba(237, 137, 54, 0.15); color: var(--cyber-orange-dark); }
-.status-cancelled { background: rgba(229, 62, 62, 0.15); color: var(--cyber-red-dark); }
-
-.btn-action {
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-md);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-    text-decoration: none;
+.dash-alert-icon {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg,#ED8936,#DD6B20);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 1.15rem;
+    flex-shrink: 0;
+    box-shadow: 0 6px 15px rgba(237,137,54,0.3);
 }
 
-.btn-view {
-    background: rgba(107, 70, 193, 0.1);
-    color: var(--cyber-purple);
+/* ---------- Section spacing ---------- */
+.dash-section { margin-bottom: 28px; }
+
+.dash-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    margin-bottom: 28px;
 }
 
-.btn-view:hover {
-    background: var(--cyber-purple);
-    color: white;
-    transform: scale(1.05);
-}
-
-/* ============================================
-   EMPTY STATE
-   ============================================ */
-.empty-state {
-    text-align: center;
-    padding: 40px 20px;
-    color: var(--cyber-gray-lighter);
-}
-
-.empty-state i {
-    font-size: 3rem;
-    margin-bottom: 16px;
-    opacity: 0.3;
-}
-
-.empty-state p {
-    margin: 0;
-    font-size: 0.9rem;
-}
-
-/* ============================================
-   RESPONSIVE
-   ============================================ */
-@media (max-width: 991.98px) {
-    .welcome-banner {
-        padding: 24px;
-    }
-    
-    .welcome-content {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-    
-    .welcome-text h2 {
-        font-size: 1.5rem;
-    }
-    
-    .welcome-actions {
-        width: 100%;
-    }
-    
-    .welcome-actions .btn {
-        flex: 1;
-    }
-}
-
-@media (max-width: 767.98px) {
-    .stat-card {
-        padding: 20px;
-    }
-    
-    .stat-icon {
-        width: 50px;
-        height: 50px;
-        font-size: 1.25rem;
-    }
-    
-    .stat-value {
-        font-size: 1.25rem;
-    }
-    
-    .welcome-actions {
-        flex-direction: column;
-    }
-    
-    .welcome-actions .btn {
-        width: 100%;
-    }
+@media (max-width: 991px) {
+    .dash-row { grid-template-columns: 1fr; }
 }
 </style>
 
+<div class="main-content">
+    <div class="content-area dash-wrap">
+
+        <!-- ============================================
+             HERO BANNER
+             ============================================ -->
+        <div class="dash-hero">
+            <div class="dash-hero-content">
+                <div>
+                    <h1 class="dash-hero-title">
+                        Welcome back, <span><?php echo htmlspecialchars(explode(' ', $_SESSION['full_name'])[0]); ?></span>! 👋
+                    </h1>
+                    <p class="dash-hero-subtitle">
+                        Here's your business at a glance — <?php echo date('l, F j, Y'); ?>
+                    </p>
+                </div>
+                <div class="dash-hero-actions">
+                    <a href="Point_Of_Sale" class="dash-hero-btn dash-hero-btn-primary">
+                        <i class="fas fa-cash-register"></i>New Sale
+                    </a>
+                    <a href="reports.php" class="dash-hero-btn dash-hero-btn-ghost">
+                        <i class="fas fa-chart-line"></i>Reports
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================
+             EXPIRING ALERT
+             ============================================ -->
+        <?php if ($expiring_products['count'] > 0): ?>
+        <div class="dash-alert">
+            <div class="dash-alert-icon"><i class="fas fa-exclamation-triangle"></i></div>
+            <div style="flex:1;">
+                <h6 style="margin:0 0 4px;font-weight:800;color:#C05621;">
+                    <?php echo $expiring_products['count']; ?> product batches expiring soon
+                </h6>
+                <p style="margin:0;font-size:0.85rem;color:#744210;">
+                    Value at risk: <strong>UGX <?php echo number_format($expiring_products['total_value'], 0); ?></strong> —
+                    batches expiring within the next 30 days.
+                </p>
+            </div>
+            <a href="expiring-products.php" class="btn btn-warning btn-sm">
+                <i class="fas fa-eye me-1"></i>View
+            </a>
+        </div>
+        <?php endif; ?>
+
+        <!-- ============================================
+             KPI CARDS
+             ============================================ -->
+        <div class="kpi-grid">
+
+            <!-- Today's Sales -->
+            <div class="kpi kpi-purple">
+                <div class="kpi-header">
+                    <div class="kpi-icon"><i class="fas fa-shopping-cart"></i></div>
+                    <?php if ($yesterday_sales['total'] > 0): ?>
+                    <span class="kpi-delta <?php echo $today_delta > 0 ? 'up' : ($today_delta < 0 ? 'down' : 'flat'); ?>">
+                        <i class="fas fa-arrow-<?php echo $today_delta > 0 ? 'up' : ($today_delta < 0 ? 'down' : 'right'); ?>"></i>
+                        <?php echo number_format(abs($today_delta), 1); ?>%
+                    </span>
+                    <?php endif; ?>
+                </div>
+                <div class="kpi-label">Today's Sales</div>
+                <div class="kpi-value">UGX <?php echo short_money($today_sales['total']); ?></div>
+                <div class="kpi-sub">
+                    <i class="fas fa-receipt"></i>
+                    <?php echo number_format($today_sales['count']); ?> transactions
+                </div>
+                <canvas class="kpi-sparkline" id="sparkToday"></canvas>
+            </div>
+
+            <!-- POS Sales (MTD) -->
+            <div class="kpi kpi-orange">
+                <div class="kpi-header">
+                    <div class="kpi-icon"><i class="fas fa-cash-register"></i></div>
+                    <?php if ($last_month_total > 0): ?>
+                    <span class="kpi-delta <?php echo $month_delta > 0 ? 'up' : ($month_delta < 0 ? 'down' : 'flat'); ?>">
+                        <i class="fas fa-arrow-<?php echo $month_delta > 0 ? 'up' : ($month_delta < 0 ? 'down' : 'right'); ?>"></i>
+                        <?php echo number_format(abs($month_delta), 1); ?>%
+                    </span>
+                    <?php endif; ?>
+                </div>
+                <div class="kpi-label">POS Sales (MTD)</div>
+                <div class="kpi-value">UGX <?php echo short_money($month_sales['total']); ?></div>
+                <div class="kpi-sub">
+                    <i class="fas fa-calendar"></i>
+                    vs <?php echo short_money($last_month_total); ?> last month
+                </div>
+            </div>
+
+            <!-- Client Orders -->
+            <div class="kpi kpi-pink">
+                <div class="kpi-header">
+                    <div class="kpi-icon"><i class="fas fa-shopping-bag"></i></div>
+                    <span class="kpi-delta flat">
+                        <?php echo number_format($client_orders_month['order_count']); ?> orders
+                    </span>
+                </div>
+                <div class="kpi-label">Client Orders (MTD)</div>
+                <div class="kpi-value">UGX <?php echo short_money($client_orders_month['order_total']); ?></div>
+                <div class="kpi-sub">
+                    <i class="fas fa-check-circle text-success"></i>
+                    Received: <?php echo short_money($client_orders_month['amount_received']); ?>
+                    <?php if ($client_orders_month['amount_outstanding'] > 0): ?>
+                    <span class="text-danger ms-2">
+                        <i class="fas fa-clock"></i> Due: <?php echo short_money($client_orders_month['amount_outstanding']); ?>
+                    </span>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Total Revenue -->
+            <div class="kpi kpi-indigo">
+                <div class="kpi-header">
+                    <div class="kpi-icon"><i class="fas fa-chart-pie"></i></div>
+                    <span class="kpi-delta up">
+                        <i class="fas fa-calculator"></i>Combined
+                    </span>
+                </div>
+                <div class="kpi-label">Total Revenue (MTD)</div>
+                <div class="kpi-value">UGX <?php echo short_money($total_revenue_month['total']); ?></div>
+                <div class="kpi-sub">
+                    <i class="fas fa-layer-group"></i>
+                    POS + Client Orders
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ============================================
+             ROW: Trend + Payment breakdown
+             ============================================ -->
+        <div class="dash-row">
+
+            <div class="chart-card">
+                <div class="chart-card-header">
+                    <div class="chart-card-title">
+                        <i class="fas fa-chart-area"></i>
+                        Revenue Trend
+                    </div>
+                    <span class="chart-card-badge">Last 14 Days</span>
+                </div>
+                <div class="chart-card-body">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-card-header">
+                    <div class="chart-card-title">
+                        <i class="fas fa-credit-card"></i>
+                        Payment Methods
+                    </div>
+                    <span class="chart-card-badge">MTD</span>
+                </div>
+                <div class="chart-card-body">
+                    <canvas id="paymentChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ============================================
+             ROW: Top Products + Hourly
+             ============================================ -->
+        <div class="dash-row">
+
+            <div class="chart-card">
+                <div class="chart-card-header">
+                    <div class="chart-card-title">
+                        <i class="fas fa-fire"></i>
+                        Top Products (MTD)
+                    </div>
+                    <span class="chart-card-badge">By Units</span>
+                </div>
+                <div class="chart-card-body">
+                    <canvas id="topProductsChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-card-header">
+                    <div class="chart-card-title">
+                        <i class="fas fa-clock"></i>
+                        Sales by Hour
+                    </div>
+                    <span class="chart-card-badge">MTD</span>
+                </div>
+                <div class="chart-card-body">
+                    <canvas id="hourlyChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ============================================
+             QUICK ACTIONS
+             ============================================ -->
+        <div class="dash-section">
+            <div class="chart-card">
+                <div class="chart-card-header">
+                    <div class="chart-card-title">
+                        <i class="fas fa-bolt"></i>
+                        Quick Actions
+                    </div>
+                </div>
+                <div class="chart-card-body" style="min-height:auto;">
+                    <div class="qa-grid">
+                        <a href="Point_Of_Sale" class="qa-btn qa-purple">
+                            <i class="fas fa-cash-register"></i><span>New Sale</span>
+                        </a>
+                        <a href="products.php" class="qa-btn qa-orange">
+                            <i class="fas fa-plus-circle"></i><span>Add Product</span>
+                        </a>
+                        <a href="customers.php" class="qa-btn qa-cyan">
+                            <i class="fas fa-user-plus"></i><span>Add Customer</span>
+                        </a>
+                        <a href="reports.php" class="qa-btn qa-green">
+                            <i class="fas fa-chart-bar"></i><span>Reports</span>
+                        </a>
+                        <a href="Client_Orders.php" class="qa-btn qa-pink">
+                            <i class="fas fa-shopping-bag"></i><span>Client Orders</span>
+                        </a>
+                        <a href="purchases.php" class="qa-btn qa-blue">
+                            <i class="fas fa-truck"></i><span>New Purchase</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================
+             RECENT SALES
+             ============================================ -->
+        <div class="chart-card">
+            <div class="chart-card-header">
+                <div class="chart-card-title">
+                    <i class="fas fa-receipt"></i>
+                    Recent Sales
+                </div>
+                <a href="sales.php" class="btn btn-sm btn-outline-primary">
+                    View All <i class="fas fa-arrow-right ms-1"></i>
+                </a>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="rs-table">
+                    <thead>
+                        <tr>
+                            <th>Invoice #</th>
+                            <th>Date & Time</th>
+                            <th>Customer</th>
+                            <th>Store</th>
+                            <th>Served By</th>
+                            <th>Amount</th>
+                            <th>Payment</th>
+                            <th>Status</th>
+                            <th class="text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (count($recent_sales) > 0): ?>
+                            <?php foreach ($recent_sales as $sale): ?>
+                            <tr>
+                                <td><span class="inv-code"><?php echo htmlspecialchars($sale['invoice_number']); ?></span></td>
+                                <td>
+                                    <div><?php echo date('M d, Y', strtotime($sale['sale_date'])); ?></div>
+                                    <small class="text-muted"><?php echo date('H:i A', strtotime($sale['sale_date'])); ?></small>
+                                </td>
+                                <td>
+                                    <?php if ($sale['customer_name']): ?>
+                                        <strong><?php echo htmlspecialchars($sale['customer_name']); ?></strong>
+                                    <?php else: ?>
+                                        <span class="text-muted">Walk-in</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td><span class="badge bg-light text-dark"><?php echo htmlspecialchars($sale['store_name']); ?></span></td>
+                                <td><?php echo htmlspecialchars($sale['served_by_name']); ?></td>
+                                <td><strong>UGX <?php echo format_currency($sale['total_amount']); ?></strong></td>
+                                <td>
+                                    <?php
+                                    $pm = $sale['payment_method'];
+                                    $pm_classes = [
+                                        'cash' => 'rs-badge-cash',
+                                        'mobile_money' => 'rs-badge-momo',
+                                        'card' => 'rs-badge-card',
+                                        'bank_transfer' => 'rs-badge-bank',
+                                        'credit' => 'rs-badge-credit',
+                                    ];
+                                    ?>
+                                    <span class="rs-badge <?php echo $pm_classes[$pm] ?? 'rs-badge-completed'; ?>">
+                                        <?php echo ucfirst(str_replace('_', ' ', $pm)); ?>
+                                    </span>
+                                </td>
+                                <td><span class="rs-badge rs-badge-<?php echo $sale['status']; ?>"><?php echo ucfirst($sale['status']); ?></span></td>
+                                <td class="text-center">
+                                    <a href="view_sale.php?id=<?php echo $sale['sale_id']; ?>" class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <tr><td colspan="9" class="text-center text-muted py-4">
+                                <i class="fas fa-receipt fa-2x mb-2 d-block opacity-50"></i>
+                                No recent sales
+                            </td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<?php include '../includes/footer.php'; ?>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+
     // ============================================
-    // SALES CHART - CYBER STYLE
+    // SHARED CHART DEFAULTS
     // ============================================
-    const ctx = document.getElementById('salesChart');
-    if (ctx) {
-        const gradient = ctx.getContext('2d').createLinearGradient(0, 0, 0, 300);
-        gradient.addColorStop(0, 'rgba(107, 70, 193, 0.3)');
-        gradient.addColorStop(1, 'rgba(107, 70, 193, 0.01)');
-        
-        new Chart(ctx.getContext('2d'), {
+    Chart.defaults.font.family = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
+    Chart.defaults.font.size = 11;
+    Chart.defaults.color = '#718096';
+
+    const currencyTooltip = {
+        callbacks: {
+            label: function(ctx) {
+                const val = ctx.parsed.y !== undefined ? ctx.parsed.y : ctx.parsed;
+                return 'UGX ' + Number(val).toLocaleString();
+            }
+        }
+    };
+
+    // ============================================
+    // 1. SPARKLINE INSIDE TODAY'S KPI CARD
+    // ============================================
+    (function() {
+        const el = document.getElementById('sparkToday');
+        if (!el) return;
+        const ctx = el.getContext('2d');
+        const grad = ctx.createLinearGradient(0, 0, 0, 44);
+        grad.addColorStop(0, 'rgba(107,70,193,0.35)');
+        grad.addColorStop(1, 'rgba(107,70,193,0)');
+
+        new Chart(ctx, {
             type: 'line',
             data: {
-                labels: <?php echo json_encode($chart_labels); ?>,
+                labels: <?php echo json_encode($spark_labels); ?>,
                 datasets: [{
-                    label: 'Sales Revenue',
-                    data: <?php echo json_encode($chart_values); ?>,
-                    backgroundColor: gradient,
+                    data: <?php echo json_encode($spark_values); ?>,
                     borderColor: '#6B46C1',
-                    borderWidth: 3,
-                    tension: 0.4,
+                    backgroundColor: grad,
+                    borderWidth: 2,
                     fill: true,
-                    pointBackgroundColor: '#ED8936',
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 3,
-                    pointRadius: 6,
-                    pointHoverRadius: 9,
-                    pointHoverBackgroundColor: '#6B46C1',
-                    pointHoverBorderColor: '#fff',
-                    pointHoverBorderWidth: 3
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 0
                 }]
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: true,
-                interaction: {
-                    intersect: false,
-                    mode: 'index'
-                },
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: { x: { display: false }, y: { display: false } }
+            }
+        });
+    })();
+
+    // ============================================
+    // 2. MAIN REVENUE TREND (14 days)
+    // ============================================
+    (function() {
+        const el = document.getElementById('trendChart');
+        if (!el) return;
+        const ctx = el.getContext('2d');
+        const grad = ctx.createLinearGradient(0, 0, 0, 260);
+        grad.addColorStop(0, 'rgba(107,70,193,0.35)');
+        grad.addColorStop(1, 'rgba(107,70,193,0.01)');
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: <?php echo json_encode($trend_labels); ?>,
+                datasets: [{
+                    label: 'Revenue',
+                    data: <?php echo json_encode($trend_values); ?>,
+                    borderColor: '#6B46C1',
+                    backgroundColor: grad,
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.4,
+                    pointBackgroundColor: '#ED8936',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 3,
+                    pointRadius: 4,
+                    pointHoverRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { intersect: false, mode: 'index' },
                 plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
+                    legend: { display: false },
+                    tooltip: Object.assign({
                         backgroundColor: '#1A202C',
                         titleColor: '#fff',
                         bodyColor: '#ED8936',
-                        borderColor: '#6B46C1',
-                        borderWidth: 2,
                         padding: 12,
                         cornerRadius: 8,
-                        displayColors: false,
-                        callbacks: {
-                            title: function(context) {
-                                return '📅 ' + context[0].label;
-                            },
-                            label: function(context) {
-                                return '💰 UGX ' + context.parsed.y.toLocaleString();
-                            }
-                        }
-                    }
+                        displayColors: false
+                    }, currencyTooltip)
                 },
                 scales: {
-                    x: {
-                        grid: {
-                            display: false
-                        },
-                        ticks: {
-                            color: '#718096',
-                            font: {
-                                size: 11,
-                                weight: '600'
-                            }
-                        }
-                    },
+                    x: { grid: { display: false }, ticks: { font: { weight: '600' } } },
                     y: {
                         beginAtZero: true,
-                        grid: {
-                            color: 'rgba(0, 0, 0, 0.05)',
-                            drawBorder: false
-                        },
+                        grid: { color: 'rgba(0,0,0,0.05)' },
                         ticks: {
-                            color: '#718096',
-                            font: {
-                                size: 11
-                            },
-                            callback: function(value) {
-                                if (value >= 1000000) {
-                                    return (value / 1000000).toFixed(1) + 'M';
-                                } else if (value >= 1000) {
-                                    return (value / 1000).toFixed(0) + 'K';
-                                }
-                                return value;
-                            }
+                            callback: v => v >= 1000000 ? (v/1000000).toFixed(1)+'M' : (v >= 1000 ? (v/1000).toFixed(0)+'K' : v)
                         }
                     }
                 }
             }
         });
-    }
-    
+    })();
+
     // ============================================
-    // ANIMATE STAT CARDS ON LOAD
+    // 3. PAYMENT METHODS DOUGHNUT
     // ============================================
-    const statCards = document.querySelectorAll('.stat-card');
-    statCards.forEach((card, index) => {
+    (function() {
+        const el = document.getElementById('paymentChart');
+        if (!el) return;
+        const labels = <?php echo json_encode(array_map(fn($r) => ucwords(str_replace('_', ' ', $r['payment_method'])), $payment_breakdown)); ?>;
+        const values = <?php echo json_encode(array_map(fn($r) => floatval($r['total']), $payment_breakdown)); ?>;
+        const colors = ['#48BB78', '#ED8936', '#4299E1', '#6B46C1', '#E53E3E'];
+
+        new Chart(el.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: values,
+                    backgroundColor: colors.slice(0, labels.length),
+                    borderColor: '#fff',
+                    borderWidth: 3,
+                    hoverOffset: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '65%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 12, boxHeight: 12, padding: 14, font: { weight: '600' } }
+                    },
+                    tooltip: Object.assign({
+                        backgroundColor: '#1A202C',
+                        titleColor: '#fff',
+                        bodyColor: '#ED8936',
+                        padding: 12,
+                        cornerRadius: 8
+                    }, currencyTooltip)
+                }
+            }
+        });
+    })();
+
+    // ============================================
+    // 4. TOP PRODUCTS (horizontal bar)
+    // ============================================
+    (function() {
+        const el = document.getElementById('topProductsChart');
+        if (!el) return;
+        const labels = <?php echo json_encode(array_map(fn($p) => $p['product_name'], $top_products)); ?>;
+        const values = <?php echo json_encode(array_map(fn($p) => intval($p['total_sold']), $top_products)); ?>;
+
+        new Chart(el.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Units Sold',
+                    data: values,
+                    backgroundColor: [
+                        '#6B46C1','#805AD5','#9F7AEA','#B794F4',
+                        '#ED8936','#F6AD55','#FBD38D','#FEEBC8'
+                    ],
+                    borderRadius: 6,
+                    borderSkipped: false
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#1A202C',
+                        titleColor: '#fff',
+                        bodyColor: '#ED8936',
+                        padding: 12,
+                        cornerRadius: 8,
+                        displayColors: false,
+                        callbacks: {
+                            label: ctx => ctx.parsed.x + ' units sold'
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(0,0,0,0.05)' },
+                        ticks: { font: { weight: '600' } }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { font: { size: 10, weight: '600' } }
+                    }
+                }
+            }
+        });
+    })();
+
+    // ============================================
+    // 5. SALES BY HOUR (gradient bar)
+    // ============================================
+    (function() {
+        const el = document.getElementById('hourlyChart');
+        if (!el) return;
+        const values = <?php echo json_encode($hourly_values); ?>;
+        const max = Math.max(...values, 1);
+
+        new Chart(el.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: <?php echo json_encode($hourly_labels); ?>,
+                datasets: [{
+                    label: 'Revenue',
+                    data: values,
+                    backgroundColor: values.map(v => {
+                        const intensity = v / max;
+                        if (intensity > 0.75) return '#6B46C1';
+                        if (intensity > 0.5)  return '#805AD5';
+                        if (intensity > 0.25) return '#B794F4';
+                        return '#E9D8FD';
+                    }),
+                    borderRadius: 6,
+                    borderSkipped: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: Object.assign({
+                        backgroundColor: '#1A202C',
+                        titleColor: '#fff',
+                        bodyColor: '#ED8936',
+                        padding: 12,
+                        cornerRadius: 8,
+                        displayColors: false
+                    }, currencyTooltip)
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { size: 10, weight: '600' } }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(0,0,0,0.05)' },
+                        ticks: {
+                            callback: v => v >= 1000000 ? (v/1000000).toFixed(1)+'M' : (v >= 1000 ? (v/1000).toFixed(0)+'K' : v)
+                        }
+                    }
+                }
+            }
+        });
+    })();
+
+    // ============================================
+    // ENTRY ANIMATIONS
+    // ============================================
+    document.querySelectorAll('.kpi').forEach((card, i) => {
         card.style.opacity = '0';
         card.style.transform = 'translateY(20px)';
         setTimeout(() => {
-            card.style.transition = 'all 0.5s ease';
+            card.style.transition = 'all 0.5s cubic-bezier(0.16,1,0.3,1)';
             card.style.opacity = '1';
             card.style.transform = 'translateY(0)';
-        }, index * 100);
+        }, i * 80);
     });
-    
-    // ============================================
-    // ANIMATE QUICK ACTION BUTTONS
-    // ============================================
-    const quickActions = document.querySelectorAll('.quick-action-btn');
-    quickActions.forEach((btn, index) => {
+
+    document.querySelectorAll('.chart-card').forEach((card, i) => {
+        card.style.opacity = '0';
+        card.style.transform = 'translateY(20px)';
+        setTimeout(() => {
+            card.style.transition = 'all 0.6s cubic-bezier(0.16,1,0.3,1)';
+            card.style.opacity = '1';
+            card.style.transform = 'translateY(0)';
+        }, 400 + i * 100);
+    });
+
+    document.querySelectorAll('.qa-btn').forEach((btn, i) => {
         btn.style.opacity = '0';
-        btn.style.transform = 'translateY(20px)';
+        btn.style.transform = 'translateY(15px)';
         setTimeout(() => {
             btn.style.transition = 'all 0.4s ease';
             btn.style.opacity = '1';
             btn.style.transform = 'translateY(0)';
-        }, 500 + index * 50);
+        }, 800 + i * 50);
     });
 });
 </script>
-
-<?php include '../includes/footer.php'; ?>

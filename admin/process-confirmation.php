@@ -2,6 +2,7 @@
 require_once '../config/config.php';
 require_login();
 if (!is_admin()) { header('Location: ../employee/dashboard.php'); exit(); }
+csrf_require();
 
 // ============================================
 // RESOLVE ORDER ID — accept from POST or GET
@@ -158,7 +159,7 @@ try {
 
     $conn->commit();
     set_alert('success', "Order {$order['order_number']} confirmed by {$processing_user_name}.");
-    header('Location: View_Client_Order.php?id=' . $order_id);
+    header('Location: View_Order.php?id=' . $order_id);
     exit;
 
 } catch (Exception $e) {

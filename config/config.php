@@ -16,6 +16,75 @@ define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
 define('DB_PASS', '');
 
+
+// ============================================
+// CSRF PROTECTION
+// ============================================
+
+/**
+ * Return the current CSRF token for the session.
+ * Creates one if it doesn't exist yet.
+ */
+function csrf_token(): string {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+/**
+ * Emit the hidden input field for use inside <form> tags.
+ */
+function csrf_field(): string {
+    return '<input type="hidden" name="csrf_token" value="'
+         . htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8')
+         . '">';
+}
+
+/**
+ * Validate a submitted token. Uses timing-safe comparison.
+ */
+function csrf_verify(?string $token): bool {
+    if (empty($_SESSION['csrf_token'])) return false;
+    if (!is_string($token) || $token === '') return false;
+    return hash_equals($_SESSION['csrf_token'], $token);
+}
+
+/**
+ * Guard for POST handlers. Aborts with 419 if the token is missing or wrong.
+ */
+function csrf_require(): void {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') return;
+
+    // Accept from POST body or (for AJAX) from header X-CSRF-Token
+    $token = $_POST['csrf_token']
+          ?? $_SERVER['HTTP_X_CSRF_TOKEN']
+          ?? '';
+
+    if (!csrf_verify($token)) {
+        http_response_code(419);
+        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])
+            && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'CSRF token missing or invalid. Please refresh the page.']);
+        } else {
+            echo 'CSRF token missing or invalid. Please refresh the page and try again.';
+        }
+        exit;
+    }
+}
+
+/**
+ * Rotate the CSRF token. Call on login and logout.
+ */
+function csrf_rotate(): void {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+
 // Determine which database to use
 if (isset($_SESSION['database_name']) && !empty($_SESSION['database_name'])) {
     define('DB_NAME', $_SESSION['database_name']);

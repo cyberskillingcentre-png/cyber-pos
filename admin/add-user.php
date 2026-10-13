@@ -3,6 +3,7 @@ require_once '../config/config.php';
 require_admin();
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    csrf_require();
     $username = trim($_POST['username']);
     $full_name = trim($_POST['full_name']);
     $email = trim($_POST['email']) ?: null;

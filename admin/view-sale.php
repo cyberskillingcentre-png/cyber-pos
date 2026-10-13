@@ -78,6 +78,7 @@ foreach ($credit_payments as $payment) {
 // HANDLE PAYMENT SUBMISSION
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'record_payment') {
+    csrf_require();
     try {
         $conn->beginTransaction();
         
@@ -419,6 +420,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                     <form method="POST" action="delete_payment.php" 
                                           onsubmit="return confirm('Delete this payment record? This action cannot be undone.');" 
                                           style="display:inline;">
+                                          <?php echo csrf_field(); ?>
                                         <input type="hidden" name="payment_id" value="<?php echo $payment['payment_id']; ?>">
                                         <input type="hidden" name="sale_id" value="<?php echo $sale_id; ?>">
                                         <button type="submit" class="btn btn-sm btn-danger" title="Delete Payment">
@@ -506,6 +508,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" id="recordPaymentForm">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="action" value="record_payment">
                 <div class="modal-body">
                     

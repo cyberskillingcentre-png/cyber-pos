@@ -120,7 +120,7 @@ $alert = get_alert();
                 </h5>
             </div>
             <div class="d-flex align-items-center gap-3">
-                <a href="Client_orders.php" class="btn btn-sm btn-secondary">
+                <a href="Client_Orders.php" class="btn btn-sm btn-secondary">
                     <i class="fas fa-arrow-left me-1"></i>Back to Orders
                 </a>
             </div>
@@ -465,7 +465,7 @@ $alert = get_alert();
                     </div>
                     <div class="card-body d-grid gap-2">
                         <?php if (($order['order_status'] ?? '') == 'pending'): ?>
-                        <a href="confirm_order.php?id=<?php echo $order_id; ?>" class="btn btn-success">
+                        <a href="Confirm_Order.php?id=<?php echo $order_id; ?>" class="btn btn-success">
                             <i class="fas fa-check-circle me-2"></i>Confirm Order
                         </a>
                         <?php endif; ?>
@@ -477,12 +477,12 @@ $alert = get_alert();
                         <?php endif; ?>
 
                         <?php if (in_array($order['order_status'] ?? '', ['confirmed', 'processing', 'ready', 'shipped'])): ?>
-                        <a href="update_status.php?id=<?php echo $order_id; ?>" class="btn btn-primary">
+                        <a href="Update_Status.php?id=<?php echo $order_id; ?>" class="btn btn-primary">
                             <i class="fas fa-edit me-2"></i>Update Status
                         </a>
                         <?php endif; ?>
 
-                        <a href="print_invoice.php?id=<?php echo $order_id; ?>" target="_blank" class="btn btn-info">
+                        <a href="Print_Invoice.php?id=<?php echo $order_id; ?>" target="_blank" class="btn btn-info">
                             <i class="fas fa-print me-2"></i>Print Invoice
                         </a>
 

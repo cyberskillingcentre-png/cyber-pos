@@ -6,6 +6,7 @@ $page_title = "Categories Management";
 
 // Handle add/edit/delete operations
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    csrf_require();
     if (isset($_POST['action'])) {
         try {
             if ($_POST['action'] == 'add') {
@@ -126,6 +127,7 @@ $categories = $stmt->fetchAll();
                                         <i class="fas fa-edit"></i>
                                     </button>
                                     <form method="POST" style="display:inline;">
+                                        <?php echo csrf_field(); ?>
                                         <input type="hidden" name="category_id" value="<?php echo $category['category_id']; ?>">
                                         <input type="hidden" name="action" value="delete">
                                         <button type="submit" class="btn btn-sm btn-danger" 
@@ -154,6 +156,7 @@ $categories = $stmt->fetchAll();
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST">
+                <?php echo csrf_field(); ?>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Category Code *</label>
@@ -191,6 +194,7 @@ $categories = $stmt->fetchAll();
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="category_id" id="edit_category_id">
                 <div class="modal-body">
                     <div class="mb-3">

@@ -1,7 +1,9 @@
 <?php
+require_once 'config/config.php';
 require_once 'master_config.php';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    csrf_require();
     $transaction_started = false;
     
     try {
@@ -617,6 +619,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         <!-- Registration Form -->
         <form method="POST" id="registerForm">
+            <?php echo csrf_field(); ?>
             
             <!-- Section: Organization Info -->
             <div class="form-section">

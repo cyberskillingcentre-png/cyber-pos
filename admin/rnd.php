@@ -8,6 +8,7 @@ if (!is_admin()) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] != 'POST') {
+    csrf_require();
     header('Location: Client_Orders');
     exit;
 }

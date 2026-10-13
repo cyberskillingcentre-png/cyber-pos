@@ -938,7 +938,7 @@ require_once 'master_config.php';
                                 <i class="fas fa-shopping-cart"></i>
                             </div>
                             <div>
-                                <strong>1,247</strong>
+                                <strong>1,248</strong>
                                 <small>Sales today</small>
                             </div>
                         </div>
@@ -948,7 +948,7 @@ require_once 'master_config.php';
                                 <i class="fas fa-chart-line"></i>
                             </div>
                             <div>
-                                <strong>+28%</strong>
+                                <strong>+30%</strong>
                                 <small>Revenue growth</small>
                             </div>
                         </div>

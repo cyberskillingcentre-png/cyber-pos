@@ -164,7 +164,8 @@ $alert = get_alert();
             </div>
         </div>
 
-        <form method="POST" action="<?php echo rtrim(BASE_URL, '/'); ?>process-confirmation.php" id="confirmForm">
+        <form method="POST" action="process-confirmation.php" id="confirmForm">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="order_id" value="<?php echo (int) $order_id; ?>">
 
             <div class="row g-4">

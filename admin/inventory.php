@@ -23,6 +23,7 @@ try {
 // POST ACTIONS
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
+    csrf_require();
     try {
 
         // ----------------------------------------
@@ -551,6 +552,7 @@ $stats = [
                                                     <i class="fas fa-edit"></i>
                                                 </button>
                                                 <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this batch?');">
+                                                    <?php echo csrf_field(); ?>
                                                     <input type="hidden" name="inventory_id" value="<?php echo (int) $inv['inventory_id']; ?>">
                                                     <input type="hidden" name="action" value="delete">
                                                     <button type="submit" class="btn btn-sm btn-danger">
@@ -692,6 +694,7 @@ $stats = [
                                             <td class="text-center">
                                                 <form method="POST" style="display:inline;"
                                                       onsubmit="return confirm('Merge all active batches for this product into one? This cannot be undone.');">
+                                                      <?php echo csrf_field(); ?>
                                                     <input type="hidden" name="action" value="merge_duplicates">
                                                     <input type="hidden" name="store_id" value="<?php echo (int) $dup['store_id']; ?>">
                                                     <input type="hidden" name="product_id" value="<?php echo (int) $dup['product_id']; ?>">
@@ -749,6 +752,7 @@ $stats = [
                                             </td>
                                             <td class="text-center">
                                                 <form method="POST" style="display:inline;">
+                                                    <?php echo csrf_field(); ?>
                                                     <input type="hidden" name="inventory_id" value="<?php echo (int) $batch['inventory_id']; ?>">
                                                     <input type="hidden" name="action" value="delete">
                                                     <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this batch?');">
@@ -829,6 +833,7 @@ $stats = [
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" id="addStockForm">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="action" value="add_stock">
                 <input type="hidden" name="target_inventory_id" id="target_inventory_id" value="0">
                 <div class="modal-body">

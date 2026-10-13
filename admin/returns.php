@@ -8,6 +8,7 @@ $page_title = "Returns Management";
 // HANDLE POST ACTIONS
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    csrf_require();
     if (isset($_POST['action'])) {
         try {
             // ----------------------------------------
@@ -365,6 +366,7 @@ $sales = $stmt->fetchAll();
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" id="returnForm">
+                <?php echo csrf_field(); ?>
                 <div class="modal-body">
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle me-2"></i>

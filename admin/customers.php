@@ -6,6 +6,7 @@ $page_title = "Customers Management";
 
 // Handle operations
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    csrf_require();
     if (isset($_POST['action'])) {
         try {
             if ($_POST['action'] == 'add') {
@@ -139,6 +140,7 @@ $customers = $stmt->fetchAll();
                                         <i class="fas fa-eye"></i>
                                     </button>
                                     <form method="POST" style="display:inline;">
+                                        <?php echo csrf_field(); ?>
                                         <input type="hidden" name="customer_id" value="<?php echo $customer['customer_id']; ?>">
                                         <input type="hidden" name="action" value="delete">
                                         <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this customer?');" title="Delete">

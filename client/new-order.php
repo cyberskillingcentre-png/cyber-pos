@@ -62,6 +62,7 @@ try {
 // HANDLE ORDER SUBMISSION (INLINE)
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
+    csrf_require();
     try {
         $conn->beginTransaction();
         
@@ -268,6 +269,7 @@ try {
         <?php endif; ?>
         
         <form method="POST" id="orderForm">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="place_order" value="1">
             <input type="hidden" name="discount_rate" value="<?php echo $discount_rate; ?>">
             <input type="hidden" name="products" id="products_input" value="[]">

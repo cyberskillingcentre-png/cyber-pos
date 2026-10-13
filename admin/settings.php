@@ -3,6 +3,7 @@ require_once '../config/config.php';
 require_admin();
 $page_title = "System Settings";
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    csrf_require();
     try {
         foreach ($_POST as $key => $value) {
             if ($key != 'csrf_token') {

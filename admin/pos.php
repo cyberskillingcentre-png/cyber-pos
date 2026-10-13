@@ -18,23 +18,22 @@ try {
     if ($check->rowCount() == 0) {
         $conn->exec("ALTER TABLE sales ADD COLUMN sale_type ENUM('cash','credit') DEFAULT 'cash' AFTER payment_method");
     }
-    
+
     $check = $conn->query("SHOW COLUMNS FROM sales LIKE 'transaction_id'");
     if ($check->rowCount() == 0) {
         $conn->exec("ALTER TABLE sales ADD COLUMN transaction_id VARCHAR(100) DEFAULT NULL AFTER amount_due");
     }
-    
+
     $check = $conn->query("SHOW COLUMNS FROM sales LIKE 'updated_at'");
     if ($check->rowCount() == 0) {
         $conn->exec("ALTER TABLE sales ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
     }
-    
+
     $check = $conn->query("SHOW COLUMNS FROM sale_items LIKE 'profit'");
     if ($check->rowCount() == 0) {
         $conn->exec("ALTER TABLE sale_items ADD COLUMN profit DECIMAL(15,2) DEFAULT 0 AFTER total_price");
     }
-    
-    // Ensure products.barcode exists
+
     $check = $conn->query("SHOW COLUMNS FROM products LIKE 'barcode'");
     if ($check->rowCount() == 0) {
         $conn->exec("ALTER TABLE products ADD COLUMN barcode VARCHAR(100) DEFAULT NULL AFTER product_code");
@@ -52,68 +51,69 @@ $payment_methods = ['cash', 'card', 'mobile_money', 'bank_transfer', 'credit'];
 // PROCESS SALE
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
+    csrf_require();
     try {
         $conn->beginTransaction();
-        
+
         $store_id = isset($_POST['store_id']) ? intval($_POST['store_id']) : 0;
         if ($store_id <= 0) throw new Exception('Please select a store before completing the sale.');
-        
+
         $check = $conn->prepare("SELECT store_id FROM stores WHERE store_id = ? AND status = 'active'");
         $check->execute([$store_id]);
         if (!$check->fetch()) throw new Exception('Selected store is invalid or inactive.');
-        
+
         $customer_id = !empty($_POST['customer_id']) ? intval($_POST['customer_id']) : null;
         $payment_method = $_POST['payment_method'] ?? '';
         $amount_paid = floatval($_POST['amount_paid'] ?? 0);
         $transaction_id = !empty($_POST['transaction_id']) ? sanitize_input($_POST['transaction_id']) : null;
         $discount_amount = isset($_POST['discount_amount']) ? floatval($_POST['discount_amount']) : 0;
         $cart_items = json_decode($_POST['cart_items'] ?? '[]', true);
-        
+
         if (empty($cart_items)) throw new Exception('Cart is empty.');
         if (empty($payment_method)) throw new Exception('Please select a payment method.');
-        
+
         $sale_type = ($payment_method == 'credit') ? 'credit' : 'cash';
         if ($sale_type == 'credit' && !$customer_id) throw new Exception('Customer is required for credit sales');
-        
+
         $subtotal = 0;
         $tax_amount = 0;
         foreach ($cart_items as $item) {
             $subtotal += $item['quantity'] * $item['price'];
             $tax_amount += $item['tax_amount'] ?? 0;
         }
-        
+
         $total_amount = $subtotal + $tax_amount - $discount_amount;
-        
+
         if ($payment_method != 'credit' && $amount_paid < $total_amount) {
             throw new Exception('Amount paid cannot be less than total amount');
         }
-        
+
         $amount_due = max(0, $total_amount - $amount_paid);
         $payment_status = ($amount_paid >= $total_amount) ? 'paid' : ($amount_paid > 0 ? 'partial' : 'unpaid');
-        
-        $invoice_number = function_exists('generate_invoice_number') 
-                          ? generate_invoice_number() 
+
+        $invoice_number = function_exists('generate_invoice_number')
+                          ? generate_invoice_number()
                           : 'INV' . date('YmdHis') . rand(100, 999);
-        
+
         $stmt = $conn->prepare("
             INSERT INTO sales (
-                invoice_number, store_id, customer_id, sale_date, 
-                subtotal, discount_amount, tax_amount, total_amount, 
-                payment_method, sale_type, payment_status, 
-                amount_paid, amount_due, transaction_id, 
+                invoice_number, store_id, customer_id, sale_date,
+                subtotal, discount_amount, tax_amount, total_amount,
+                payment_method, sale_type, payment_status,
+                amount_paid, amount_due, transaction_id,
                 served_by, status
             ) VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed')
         ");
         $stmt->execute([
-            $invoice_number, $store_id, $customer_id, 
+            $invoice_number, $store_id, $customer_id,
             $subtotal, $discount_amount, $tax_amount, $total_amount,
             $payment_method, $sale_type, $payment_status,
             $amount_paid, $amount_due, $transaction_id,
             $_SESSION['user_id']
         ]);
-        
+
         $sale_id = $conn->lastInsertId();
-        
+
         foreach ($cart_items as $item) {
             $product_id = intval($item['product_id']);
             $quantity = intval($item['quantity']);
@@ -122,14 +122,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
             $tax = floatval($item['tax_amount'] ?? 0);
             $line_total = $quantity * $price;
             $profit = ($price - $cost) * $quantity;
-            
+
             $stmt = $conn->prepare("
                 INSERT INTO sale_items 
                 (sale_id, product_id, quantity, unit_price, discount_amount, tax_amount, total_price, profit) 
                 VALUES (?, ?, ?, ?, 0, ?, ?, ?)
             ");
             $stmt->execute([$sale_id, $product_id, $quantity, $price, $tax, $line_total, $profit]);
-            
+
             // FIFO inventory deduction
             $remaining_qty = $quantity;
             $stmt = $conn->prepare("
@@ -140,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
             ");
             $stmt->execute([$store_id, $product_id]);
             $batches = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
+
             foreach ($batches as $batch) {
                 if ($remaining_qty <= 0) break;
                 if ($batch['quantity'] >= $remaining_qty) {
@@ -154,28 +154,27 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                 }
             }
         }
-        
+
         if ($customer_id) {
             $stmt = $conn->prepare("UPDATE customers SET total_purchases = total_purchases + ? WHERE customer_id = ?");
             $stmt->execute([$total_amount, $customer_id]);
         }
-        
+
         if (function_exists('log_activity')) {
             log_activity($_SESSION['user_id'], 'SALE_CREATED', "Created sale $invoice_number", $conn);
         }
-        
+
         $conn->commit();
 
-            // Redirect back to POS with auto-print flag
-            if ($sale_type == 'credit') {
-                set_alert('success', 'Credit sale completed! Invoice: ' . $invoice_number);
-                header('Location: pos.php?auto_print=' . $sale_id . '&type=credit');
-            } else {
-                set_alert('success', 'Sale completed! Invoice: ' . $invoice_number);
-                header('Location: pos.php?auto_print=' . $sale_id);
-            }
-            exit();
-        
+        if ($sale_type == 'credit') {
+            set_alert('success', 'Credit sale completed! Invoice: ' . $invoice_number);
+            header('Location: pos.php?auto_print=' . $sale_id . '&type=credit');
+        } else {
+            set_alert('success', 'Sale completed! Invoice: ' . $invoice_number);
+            header('Location: pos.php?auto_print=' . $sale_id);
+        }
+        exit();
+
     } catch(Exception $e) {
         if (isset($conn) && $conn->inTransaction()) $conn->rollBack();
         set_alert('danger', 'Error: ' . $e->getMessage());
@@ -193,7 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                 <button class="btn btn-link d-lg-none sidebar-toggle me-2">
                     <i class="fas fa-bars"></i>
                 </button>
-                <button class="btn btn-link sidebar-desktop-toggle me-2" 
+                <button class="btn btn-link sidebar-desktop-toggle me-2"
                         id="sidebarDesktopToggle" title="Toggle Sidebar (Ctrl+B)">
                     <i class="fas fa-bars"></i>
                 </button>
@@ -214,7 +213,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
             </div>
         </div>
     </div>
-    
+
     <div class="content-area pos-content">
         <?php $alert = get_alert(); if ($alert): ?>
             <div class="alert alert-<?php echo $alert['type']; ?> alert-dismissible fade show">
@@ -223,7 +222,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         <?php endif; ?>
-        
+
         <div class="row g-3">
             <!-- LEFT -->
             <div class="col-lg-8">
@@ -252,25 +251,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Product Search / Barcode -->
                 <div class="pos-search-card mb-3">
                     <div class="search-input-wrapper">
                         <div class="search-icon"><i class="fas fa-barcode"></i></div>
-                        <input type="text" id="product-search" class="pos-search-input" 
-                               placeholder="Scan barcode or search by name/code..." 
+                        <input type="text" id="product-search" class="pos-search-input"
+                               placeholder="Scan barcode or search by name/code..."
                                autofocus autocomplete="off">
                         <div class="search-hints">
-                            <span class="hint-key">📷</span>
-                            <span class="hint-text">Scan</span>
-                            <span class="hint-key">↑↓</span>
-                            <span class="hint-text">Nav</span>
                             <span class="hint-key">Enter</span>
                             <span class="hint-text">Add</span>
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Search Results -->
                 <div id="search-results-container" class="search-results-container mb-3" style="display:none;">
                     <div class="search-results-header">
@@ -281,7 +276,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                     </div>
                     <div id="search-results" class="search-results-list"></div>
                 </div>
-                
+
                 <!-- Cart -->
                 <div class="card cyber-card">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -323,7 +318,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                     </div>
                 </div>
             </div>
-            
+
             <!-- RIGHT: Sale Summary -->
             <div class="col-lg-4">
                 <div class="card cyber-card summary-card">
@@ -332,8 +327,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                     </div>
                     <div class="card-body">
                         <form id="sale-form" method="POST">
+                            <?php echo csrf_field(); ?>
                             <input type="hidden" name="store_id" id="store-id-hidden" value="">
-                            
+
                             <div class="mb-3">
                                 <label class="form-label-cyber">
                                     <i class="fas fa-user me-2"></i>Customer
@@ -343,7 +339,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                     <option value="">🚶 Walk-in Customer</option>
                                 </select>
                             </div>
-                            
+
                             <div class="totals-display">
                                 <div class="total-row">
                                     <span class="total-label">Subtotal</span>
@@ -357,59 +353,43 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                     <span class="total-label"><i class="fas fa-tag me-1"></i>Discount</span>
                                     <div class="discount-input-wrapper">
                                         <span class="currency-prefix">UGX</span>
-                                        <input type="number" name="discount_amount" id="discount-input" 
+                                        <input type="number" name="discount_amount" id="discount-input"
                                                class="discount-input" step="0.01" min="0" value="0">
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <div class="grand-total-box">
                                 <span class="grand-total-label">TOTAL</span>
                                 <span class="grand-total-value" id="total-display">UGX 0</span>
                                 <input type="hidden" id="total-value" value="0">
                             </div>
-                            
+
+                            <!-- PAYMENT METHOD: DROPDOWN -->
                             <div class="mb-3">
                                 <label class="form-label-cyber">
                                     <i class="fas fa-credit-card me-2"></i>Payment Method
                                 </label>
-                                <div class="payment-methods-grid">
-                                    <div class="payment-method-option" data-value="cash">
-                                        <i class="fas fa-money-bill-wave"></i><span>Cash</span>
-                                    </div>
-                                    <div class="payment-method-option" data-value="card">
-                                        <i class="fas fa-credit-card"></i><span>Card</span>
-                                    </div>
-                                    <div class="payment-method-option" data-value="mobile_money">
-                                        <i class="fas fa-mobile-alt"></i><span>Mobile</span>
-                                    </div>
-                                    <div class="payment-method-option" data-value="bank_transfer">
-                                        <i class="fas fa-university"></i><span>Bank</span>
-                                    </div>
-                                    <div class="payment-method-option" data-value="credit">
-                                        <i class="fas fa-file-invoice-dollar"></i><span>Credit</span>
-                                    </div>
-                                </div>
-                                <select name="payment_method" id="payment-method" class="d-none" required>
-                                    <option value="">Select Payment Method</option>
-                                    <?php foreach ($payment_methods as $method): ?>
-                                        <option value="<?php echo $method; ?>">
-                                            <?php echo ucfirst(str_replace('_', ' ', $method)); ?>
-                                        </option>
-                                    <?php endforeach; ?>
+                                <select name="payment_method" id="payment-method" class="form-select payment-select-compact" required>
+                                    <option value="">-- Select Payment Method --</option>
+                                    <option value="cash">💵 Cash</option>
+                                    <option value="card">💳 Card</option>
+                                    <option value="mobile_money">📱 Mobile Money</option>
+                                    <option value="bank_transfer">🏦 Bank Transfer</option>
+                                    <option value="credit">📋 Credit (Pay Later)</option>
                                 </select>
                             </div>
-                            
+
                             <div id="transaction-id-section" class="mb-3" style="display:none;">
                                 <label class="form-label-cyber">
                                     <i class="fas fa-hashtag me-2"></i>Transaction ID
                                     <span class="badge bg-danger ms-2">Required</span>
                                 </label>
-                                <input type="text" name="transaction_id" id="transaction-id" 
-                                       class="form-control form-control-cyber" 
+                                <input type="text" name="transaction_id" id="transaction-id"
+                                       class="form-control form-control-cyber"
                                        placeholder="Enter transaction ID">
                             </div>
-                            
+
                             <div id="payment-section">
                                 <div class="mb-3">
                                     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -422,14 +402,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                     </div>
                                     <div class="amount-input-wrapper">
                                         <span class="currency-prefix">UGX</span>
-                                        <input type="number" name="amount_paid" id="amount-paid" 
+                                        <input type="number" name="amount_paid" id="amount-paid"
                                                class="amount-input" step="0.01" min="0" value="0" required>
                                     </div>
                                     <small class="text-danger d-none" id="amount-error">
                                         <i class="fas fa-exclamation-circle me-1"></i>Amount cannot be less than total
                                     </small>
                                 </div>
-                                
+
                                 <div class="change-display" id="change-container" style="display:none;">
                                     <span class="change-label">
                                         <i class="fas fa-hand-holding-usd me-1"></i>Change
@@ -437,7 +417,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                     <span class="change-value" id="change-display">UGX 0</span>
                                 </div>
                             </div>
-                            
+
                             <div id="credit-notice" class="credit-notice" style="display:none;">
                                 <div class="credit-notice-icon"><i class="fas fa-exclamation-triangle"></i></div>
                                 <div class="credit-notice-content">
@@ -445,30 +425,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                     <p>Customer is required. Payment can be partial or zero.</p>
                                 </div>
                             </div>
-                            
+
                             <input type="hidden" name="cart_items" id="cart-items-input">
                             <input type="hidden" name="complete_sale" value="1">
-                            
+
                             <button type="submit" class="btn-complete-sale" id="complete-sale-btn" disabled>
                                 <i class="fas fa-check-circle"></i>
                                 <span>Complete Sale</span>
                                 <span class="btn-shortcut">F12</span>
                             </button>
-                            
-                            <div class="keyboard-shortcuts">
-                                <div class="shortcut-item">
-                                    <span class="shortcut-key">F2</span>
-                                    <span class="shortcut-desc">Focus</span>
-                                </div>
-                                <div class="shortcut-item">
-                                    <span class="shortcut-key">F4</span>
-                                    <span class="shortcut-desc">Clear</span>
-                                </div>
-                                <div class="shortcut-item">
-                                    <span class="shortcut-key">F12</span>
-                                    <span class="shortcut-desc">Complete</span>
-                                </div>
-                            </div>
                         </form>
                     </div>
                 </div>
@@ -477,7 +442,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
     </div>
 </div>
 
-<!-- POS Styles (shortened - keep your existing styles) -->
+<!-- POS Styles -->
 <style>
 .pos-content { background: linear-gradient(135deg, #F7FAFC 0%, #EDF2F7 100%); min-height: calc(100vh - 60px); }
 .pos-clock { display: flex; align-items: center; gap: 8px; padding: 6px 14px; background: rgba(72, 187, 120, 0.15); border-radius: 20px; color: #2F855A; font-weight: 600; font-family: 'Courier New', monospace; font-size: 0.9rem; }
@@ -533,14 +498,41 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
 .grand-total-box { background: linear-gradient(135deg, #1A202C, #2D3748); border-radius: 10px; padding: 20px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
 .grand-total-label { color: #ED8936; font-weight: 800; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; }
 .grand-total-value { color: #fff; font-weight: 800; font-size: 1.25rem; font-family: 'Courier New', monospace; }
-.payment-methods-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.payment-method-option { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px 8px; background: #F7FAFC; border: 2px solid #E2E8F0; border-radius: 10px; cursor: pointer; transition: all 0.2s ease; gap: 6px; }
-.payment-method-option:hover { border-color: #6B46C1; background: rgba(107, 70, 193, 0.05); }
-.payment-method-option.selected { background: linear-gradient(135deg, #6B46C1, #553C9A); border-color: #553C9A; color: #fff; }
-.payment-method-option i { font-size: 1.25rem; color: #6B46C1; }
-.payment-method-option.selected i { color: #ED8936; }
-.payment-method-option span { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: #4A5568; }
-.payment-method-option.selected span { color: #fff; }
+
+/* ============================================
+   PAYMENT METHOD DROPDOWN
+   ============================================ */
+.payment-select-compact {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #E2E8F0;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1A202C;
+    background: #F7FAFC;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B46C1' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+    padding-right: 40px;
+}
+
+.payment-select-compact:focus {
+    outline: none;
+    border-color: #6B46C1;
+    background-color: #fff;
+    box-shadow: 0 0 0 3px rgba(107, 70, 193, 0.15);
+}
+
+.payment-select-compact:hover {
+    border-color: #6B46C1;
+}
+
 .btn-auto-fill { background: rgba(237, 137, 54, 0.15); color: #C05621; border: none; padding: 4px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; cursor: pointer; }
 .amount-input-wrapper { display: flex; align-items: center; background: #F7FAFC; border: 2px solid #E2E8F0; border-radius: 8px; overflow: hidden; }
 .amount-input-wrapper .currency-prefix { padding: 0 12px; background: rgba(72, 187, 120, 0.1); color: #2F855A; height: 100%; display: flex; align-items: center; border-right: 1px solid #E2E8F0; }
@@ -556,41 +548,35 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
 .btn-complete-sale:hover:not(:disabled) { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(72, 187, 120, 0.5); }
 .btn-complete-sale:disabled { background: #CBD5E0; cursor: not-allowed; box-shadow: none; opacity: 0.6; }
 .btn-shortcut { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); padding: 3px 8px; background: rgba(255, 255, 255, 0.2); border-radius: 6px; font-size: 0.65rem; font-weight: 700; font-family: 'Courier New', monospace; }
-.keyboard-shortcuts { display: flex; justify-content: center; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #E2E8F0; flex-wrap: wrap; }
-.shortcut-item { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: #A0AEC0; }
-.shortcut-key { padding: 2px 8px; background: #EDF2F7; border: 1px solid #E2E8F0; border-radius: 4px; font-family: 'Courier New', monospace; font-weight: 700; color: #4A5568; font-size: 0.65rem; }
 @media (max-width: 991.98px) {
     .summary-card { position: static; margin-top: 20px; }
     .search-hints { display: none; }
 }
 </style>
+
 <?php if ($auto_print_sale_id > 0): ?>
-<!-- Auto-Print Hidden Iframe -->
 <div id="printContainer" style="position: fixed; top: -9999px; left: -9999px; width: 1px; height: 1px; overflow: hidden;">
     <?php if ($auto_print_type === 'credit'): ?>
-        <iframe id="printFrame" src="credit-invoice.php?id=<?php echo $auto_print_sale_id; ?>&autoprint=1" 
+        <iframe id="printFrame" src="credit-invoice.php?id=<?php echo $auto_print_sale_id; ?>&autoprint=1"
                 style="width: 300px; height: 500px; border: none;"></iframe>
     <?php else: ?>
-        <iframe id="printFrame" src="receipt.php?id=<?php echo $auto_print_sale_id; ?>&autoprint=1" 
+        <iframe id="printFrame" src="receipt.php?id=<?php echo $auto_print_sale_id; ?>&autoprint=1"
                 style="width: 300px; height: 500px; border: none;"></iframe>
     <?php endif; ?>
 </div>
 
 <script>
-// Silent auto-print then clean up URL
 (function() {
     const saleId = <?php echo $auto_print_sale_id; ?>;
     console.log('🖨️ Auto-print triggered for sale:', saleId);
-    
-    // Clean up URL (remove auto_print param) after 2 seconds
+
     setTimeout(function() {
         if (window.history.replaceState) {
             const cleanUrl = window.location.pathname;
             window.history.replaceState({}, document.title, cleanUrl);
         }
     }, 2000);
-    
-    // Remove the iframe after printing (5 seconds)
+
     setTimeout(function() {
         const container = document.getElementById('printContainer');
         if (container) container.remove();
@@ -627,7 +613,7 @@ function updateClock() {
 document.addEventListener('DOMContentLoaded', function() {
     setInterval(updateClock, 1000);
     updateClock();
-    
+
     loadCustomers();
     setupStoreSelector();
     setupPaymentMethods();
@@ -636,7 +622,6 @@ document.addEventListener('DOMContentLoaded', function() {
     setupAmountPaid();
     setupClearCart();
     setupFormSubmit();
-    setupKeyboardShortcuts();
     setupAutoFill();
 });
 
@@ -646,7 +631,7 @@ document.addEventListener('DOMContentLoaded', function() {
 function loadCustomers() {
     const customerSelect = document.getElementById('customer-select');
     if (!customerSelect) return;
-    
+
     fetch('../includes/ajax_customers.php')
         .then(response => response.json())
         .then(data => {
@@ -669,15 +654,15 @@ function setupStoreSelector() {
     const storeSelect = document.getElementById('store-select');
     const storeStatus = document.getElementById('store-status');
     const hiddenInput = document.getElementById('store-id-hidden');
-    
+
     if (!storeSelect) return;
-    
+
     if (storeSelect.value) {
         storeId = storeSelect.value;
         if (hiddenInput) hiddenInput.value = storeId;
         updateStoreStatus(storeId, storeStatus);
     }
-    
+
     storeSelect.addEventListener('change', function() {
         storeId = this.value;
         if (hiddenInput) hiddenInput.value = storeId;
@@ -701,18 +686,16 @@ function updateStoreStatus(storeId, storeStatus) {
 }
 
 /* ============================================
-   PAYMENT METHODS
+   PAYMENT METHODS — DROPDOWN HANDLER
    ============================================ */
 function setupPaymentMethods() {
-    document.querySelectorAll('.payment-method-option').forEach(function(option) {
-        option.addEventListener('click', function() {
-            document.querySelectorAll('.payment-method-option').forEach(o => o.classList.remove('selected'));
-            this.classList.add('selected');
-            selectedPaymentMethod = this.dataset.value;
-            document.getElementById('payment-method').value = selectedPaymentMethod;
-            updatePaymentUI(selectedPaymentMethod);
-            updateCompleteButton();
-        });
+    const select = document.getElementById('payment-method');
+    if (!select) return;
+
+    select.addEventListener('change', function() {
+        selectedPaymentMethod = this.value;
+        updatePaymentUI(selectedPaymentMethod);
+        updateCompleteButton();
     });
 }
 
@@ -723,7 +706,7 @@ function updatePaymentUI(paymentMethod) {
     const transactionSection = document.getElementById('transaction-id-section');
     const transactionInput = document.getElementById('transaction-id');
     const amountPaid = document.getElementById('amount-paid');
-    
+
     if (paymentMethod === 'credit') {
         paymentSection.style.display = 'block';
         creditNotice.style.display = 'flex';
@@ -756,23 +739,19 @@ function updatePaymentUI(paymentMethod) {
 function setupProductSearch() {
     const searchInput = document.getElementById('product-search');
     if (!searchInput) return;
-    
+
     searchInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
-            
+
             const query = this.value.trim();
             if (!query) return;
-            
-            // ✅ BARCODE DETECTION
-            // Barcode scanners "type" the barcode then press Enter.
-            // Barcodes are typically numeric and 8-13 digits.
+
             if (/^\d{8,13}$/.test(query)) {
                 lookupByBarcode(query);
                 return;
             }
-            
-            // Otherwise, use selected search result or search
+
             if (selectedProductIndex >= 0 && productsData[selectedProductIndex]) {
                 const product = productsData[selectedProductIndex];
                 if (product.quantity > 0) {
@@ -795,11 +774,11 @@ function setupProductSearch() {
             clearSearchResults();
         }
     });
-    
+
     searchInput.addEventListener('input', function() {
         clearTimeout(searchTimeout);
         const query = this.value;
-        
+
         if (query.length >= 2) {
             searchTimeout = setTimeout(searchProducts, 300);
         } else if (query.length === 0) {
@@ -809,16 +788,16 @@ function setupProductSearch() {
 }
 
 /* ============================================
-   BARCODE LOOKUP - INSTANT ADD TO CART
+   BARCODE LOOKUP
    ============================================ */
 function lookupByBarcode(barcode) {
     const searchInput = document.getElementById('product-search');
-    
+
     if (!storeId) {
         showToast('Please select a store first', 'warning');
         return;
     }
-    
+
     fetch('../includes/ajax_lookup_barcode.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -828,14 +807,13 @@ function lookupByBarcode(barcode) {
     .then(data => {
         if (data.success && data.product) {
             const product = data.product;
-            
+
             if (product.quantity <= 0) {
                 showToast(product.product_name + ' is out of stock', 'warning');
                 searchInput.value = '';
                 return;
             }
-            
-            // Add to cart
+
             addToCart(
                 product.product_id,
                 product.product_name,
@@ -844,7 +822,7 @@ function lookupByBarcode(barcode) {
                 product.tax_rate,
                 product.quantity
             );
-            
+
             searchInput.value = '';
             clearSearchResults();
         } else {
@@ -863,14 +841,14 @@ function lookupByBarcode(barcode) {
    ============================================ */
 function searchProducts() {
     const query = document.getElementById('product-search').value.trim();
-    
+
     if (!storeId) {
         showToast('Please select a store first', 'warning');
         return;
     }
-    
+
     if (query.length < 2) return;
-    
+
     fetch('../includes/ajax_search_products.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -879,21 +857,21 @@ function searchProducts() {
     .then(response => response.json())
     .then(products => {
         if (products.error) {
-            document.getElementById('search-results').innerHTML = 
+            document.getElementById('search-results').innerHTML =
                 '<div style="padding:20px;color:#E53E3E;">' + products.error + '</div>';
             document.getElementById('search-results-container').style.display = 'block';
             return;
         }
-        
+
         if (products.length === 0) {
-            document.getElementById('search-results').innerHTML = 
+            document.getElementById('search-results').innerHTML =
                 '<div style="text-align:center;padding:40px;color:#A0AEC0;"><i class="fas fa-search" style="font-size:3rem;opacity:0.3;margin-bottom:16px;display:block;"></i><p>No products found</p></div>';
             document.getElementById('search-results-container').style.display = 'block';
             productsData = [];
             selectedProductIndex = -1;
             return;
         }
-        
+
         productsData = products;
         selectedProductIndex = 0;
         renderProducts();
@@ -911,14 +889,14 @@ function renderProducts() {
         const outOfStock = product.quantity <= 0;
         const selectedClass = index === selectedProductIndex ? 'selected' : '';
         const disabledClass = outOfStock ? 'out-of-stock' : '';
-        
+
         let stockClass = 'stock-good';
         if (outOfStock) stockClass = 'stock-out';
         else if (product.quantity <= 10) stockClass = 'stock-low';
-        
-        const clickHandler = outOfStock ? '' : 
+
+        const clickHandler = outOfStock ? '' :
             `onclick="addToCart(${product.product_id}, '${String(product.product_name).replace(/'/g, "\\'")}', ${product.selling_price}, ${product.purchase_price}, ${product.tax_rate}, ${product.quantity})"`;
-        
+
         html += `
             <div class="product-item ${selectedClass} ${disabledClass}" data-index="${index}" ${clickHandler}>
                 <div class="product-info">
@@ -941,13 +919,13 @@ function renderProducts() {
 
 function navigateProducts(key) {
     if (productsData.length === 0) return;
-    
+
     if (key === 'ArrowDown') {
         selectedProductIndex = (selectedProductIndex + 1) % productsData.length;
     } else if (key === 'ArrowUp') {
         selectedProductIndex = selectedProductIndex <= 0 ? productsData.length - 1 : selectedProductIndex - 1;
     }
-    
+
     renderProducts();
     const selectedElement = document.querySelector('.product-item.selected');
     if (selectedElement) selectedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -968,9 +946,9 @@ function addToCart(productId, productName, price, cost, taxRate, availableQty) {
         showToast('Product is out of stock', 'warning');
         return;
     }
-    
+
     const existingItem = cart.find(item => item.product_id === productId);
-    
+
     if (existingItem) {
         if (existingItem.quantity < availableQty) {
             existingItem.quantity++;
@@ -991,10 +969,10 @@ function addToCart(productId, productName, price, cost, taxRate, availableQty) {
         });
         showToast(`✓ ${productName}`, 'success');
     }
-    
+
     updateCart();
     clearSearchResults();
-    
+
     const searchInput = document.getElementById('product-search');
     if (searchInput) {
         searchInput.value = '';
@@ -1024,7 +1002,7 @@ function updateQuantity(index, newQty) {
 function updateCart() {
     const cartContainer = document.getElementById('cart-items');
     document.getElementById('cart-count').textContent = cart.length;
-    
+
     if (cart.length === 0) {
         cartContainer.innerHTML = `
             <tr class="empty-cart-row">
@@ -1043,7 +1021,7 @@ function updateCart() {
             const taxAmount = (item.price * item.quantity * item.tax_rate / 100);
             item.tax_amount = taxAmount;
             const subtotal = item.price * item.quantity;
-            
+
             html += `
                 <tr>
                     <td><div class="cart-product-name">${item.product_name}</div></td>
@@ -1063,15 +1041,15 @@ function updateCart() {
 function updateTotals() {
     let subtotal = 0, taxTotal = 0;
     cart.forEach(i => { subtotal += i.price * i.quantity; taxTotal += i.tax_amount || 0; });
-    
+
     const discount = parseFloat(document.getElementById('discount-input').value) || 0;
     const total = Math.max(0, subtotal + taxTotal - discount);
-    
+
     document.getElementById('subtotal-display').textContent = 'UGX ' + subtotal.toFixed(2);
     document.getElementById('tax-display').textContent = 'UGX ' + taxTotal.toFixed(2);
     document.getElementById('total-display').textContent = 'UGX ' + total.toFixed(2);
     document.getElementById('total-value').value = total.toFixed(2);
-    
+
     calculateChange();
     updateCompleteButton();
 }
@@ -1095,9 +1073,9 @@ function updateCompleteButton() {
     const total = parseFloat(document.getElementById('total-value').value) || 0;
     const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
     const err = document.getElementById('amount-error');
-    
+
     let ok = (storeId !== null && storeId !== '') && cart.length > 0 && paymentMethod !== '';
-    
+
     if (paymentMethod && paymentMethod !== 'credit') {
         if (paid < total) { err.classList.remove('d-none'); ok = false; }
         else { err.classList.add('d-none'); }
@@ -1143,50 +1121,33 @@ function setupClearCart() {
 function setupFormSubmit() {
     const form = document.getElementById('sale-form');
     if (!form) return;
-    
+
     form.addEventListener('submit', function(e) {
         if (!storeId) { e.preventDefault(); showToast('Please select a store', 'warning'); return false; }
         if (cart.length === 0) { e.preventDefault(); showToast('Cart is empty', 'warning'); return false; }
-        
+
         const pm = document.getElementById('payment-method').value;
         if (!pm) { e.preventDefault(); showToast('Select a payment method', 'warning'); return false; }
-        
+
         if (pm === 'credit' && !document.getElementById('customer-select').value) {
             e.preventDefault(); showToast('Customer required for credit', 'warning'); return false;
         }
         if (pm === 'mobile_money' && !document.getElementById('transaction-id').value) {
             e.preventDefault(); showToast('Transaction ID required', 'warning'); return false;
         }
-        
+
         const total = parseFloat(document.getElementById('total-value').value) || 0;
         const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
         if (pm !== 'credit' && paid < total) {
             e.preventDefault(); showToast('Amount paid is less than total', 'warning'); return false;
         }
-        
+
         document.getElementById('store-id-hidden').value = storeId;
         document.getElementById('cart-items-input').value = JSON.stringify(cart);
-        
+
         const sb = document.getElementById('complete-sale-btn');
         sb.disabled = true;
         sb.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-    });
-}
-
-function setupKeyboardShortcuts() {
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'F2') {
-            e.preventDefault();
-            const si = document.getElementById('product-search');
-            if (si) si.focus();
-        } else if (e.key === 'F4') {
-            e.preventDefault();
-            document.getElementById('clear-cart').click();
-        } else if (e.key === 'F12') {
-            e.preventDefault();
-            const cb = document.getElementById('complete-sale-btn');
-            if (!cb.disabled) document.getElementById('sale-form').submit();
-        }
     });
 }
 
@@ -1197,10 +1158,10 @@ function showToast(message, type) {
     type = type || 'info';
     const icons = { success: 'check-circle', warning: 'exclamation-triangle', error: 'times-circle', info: 'info-circle' };
     const colors = { success: '#48BB78', warning: '#ED8936', error: '#E53E3E', info: '#6B46C1' };
-    
+
     const existing = document.querySelector('.pos-toast');
     if (existing) existing.remove();
-    
+
     const toast = document.createElement('div');
     toast.className = 'pos-toast';
     toast.style.cssText = `
@@ -1216,8 +1177,8 @@ function showToast(message, type) {
     `;
     toast.innerHTML = `<i class="fas fa-${icons[type]}" style="color: ${colors[type]}; font-size: 1.2rem;"></i><span>${message}</span>`;
     document.body.appendChild(toast);
-    
-    setTimeout(function() { 
+
+    setTimeout(function() {
         toast.style.animation = 'slideOutRight 0.3s ease';
         setTimeout(function() { toast.remove(); }, 300);
     }, 2000);

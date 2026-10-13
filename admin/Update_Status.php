@@ -17,6 +17,7 @@ if (!$order) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    csrf_require();
     $order_status = $_POST['order_status'];
     $payment_status = $_POST['payment_status'];
     $notes = trim($_POST['notes'] ?? '');
@@ -60,6 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     </div>
                     <div class="card-body">
                         <form method="POST">
+                            <?php echo csrf_field(); ?>
                             <div class="mb-3">
                                 <label class="form-label">Order Status *</label>
                                 <select name="order_status" class="form-select" required>

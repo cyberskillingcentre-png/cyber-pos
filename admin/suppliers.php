@@ -8,6 +8,7 @@ $page_title = "Suppliers";
 // HANDLE POST ACTIONS
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
+    csrf_require();
     try {
         // ----------------------------------------
         // ADD SUPPLIER
@@ -201,6 +202,7 @@ $suppliers = $stmt->fetchAll();
 
                                     <form method="POST" style="display:inline-block;"
                                           onsubmit="return confirm('Deactivate this supplier?');">
+                                          <?php echo csrf_field(); ?>
                                         <input type="hidden" name="supplier_id" value="<?php echo (int) $sup['supplier_id']; ?>">
                                         <button type="submit" name="action" value="delete"
                                                 class="btn btn-sm btn-danger" title="Deactivate Supplier">
@@ -229,6 +231,7 @@ $suppliers = $stmt->fetchAll();
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST">
+                <?php echo csrf_field(); ?>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Supplier Name *</label>
@@ -273,6 +276,7 @@ $suppliers = $stmt->fetchAll();
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" id="editForm">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="supplier_id" id="edit_supplier_id">
                 <div class="modal-body">
                     <div class="mb-3">

@@ -1,5 +1,7 @@
 <?php
 require_once 'master_config.php';
+require_once 'config/config.php';
+
 
 $error = '';
 $success = '';
@@ -10,6 +12,7 @@ $reset_username = '';
 // STEP 1: VERIFY EMAIL/USERNAME
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'verify') {
+    csrf_require();
     $identifier = trim($_POST['identifier'] ?? '');
     
     try {
@@ -84,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'verif
 // STEP 2: RESET PASSWORD
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset') {
+    csrf_require();
     $new_password = $_POST['new_password'] ?? '';
     $confirm_password = $_POST['confirm_password'] ?? '';
     
@@ -145,6 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset
 // DETERMINE STEP ON PAGE LOAD
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    csrf_require();
     if (isset($_SESSION['reset_user_id'])) {
         $step = 'reset';
         $reset_username = $_SESSION['reset_username'] ?? '';
@@ -646,6 +651,7 @@ if ($step === 'reset' && empty($reset_username) && isset($_SESSION['reset_userna
         <?php if ($step === 'email'): ?>
         
         <form method="POST">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="verify">
             
             <div class="form-group">
@@ -688,6 +694,7 @@ if ($step === 'reset' && empty($reset_username) && isset($_SESSION['reset_userna
         </div>
         
         <form method="POST" id="resetForm">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="reset">
             
             <div class="form-group">
