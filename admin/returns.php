@@ -480,6 +480,7 @@ $sales = $stmt->fetchAll();
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST">
+                                <?php echo csrf_field(); ?>
                 <input type="hidden" name="return_id" id="approve_return_id">
                 <div class="modal-body">
                     <div class="mb-3">
@@ -523,6 +524,7 @@ $sales = $stmt->fetchAll();
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="return_id" id="reject_return_id">
                 <div class="modal-body">
                     <div class="mb-3">

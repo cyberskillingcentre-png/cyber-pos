@@ -35,5 +35,5 @@ try {
 
 } catch (PDOException $e) {
     error_log('ajax_inventory_batches failed: ' . $e->getMessage());
-    echo json_encode(['success' => false, 'error' => 'Database error']);
+    echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
 }

@@ -93,21 +93,31 @@ try {
 }
 
 // ============================================
-// STATISTICS
+// STATISTICS (Fixed for PHP 8.1+ NULL deprecation)
 // ============================================
 $stats = ['total' => 0, 'pending' => 0, 'delivered' => 0, 'cancelled' => 0];
 try {
     $stmt = $conn->query("
         SELECT 
             COUNT(*) AS total,
-            SUM(CASE WHEN order_status = 'pending'   THEN 1 ELSE 0 END) AS pending,
-            SUM(CASE WHEN order_status = 'delivered' THEN 1 ELSE 0 END) AS delivered,
-            SUM(CASE WHEN order_status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled
+            COALESCE(SUM(CASE WHEN order_status = 'pending'   THEN 1 ELSE 0 END), 0) AS pending,
+            COALESCE(SUM(CASE WHEN order_status = 'delivered' THEN 1 ELSE 0 END), 0) AS delivered,
+            COALESCE(SUM(CASE WHEN order_status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled
         FROM client_orders
     ");
     $result = $stmt->fetch(PDO::FETCH_ASSOC);
-    if ($result) $stats = $result;
-} catch (PDOException $e) {}
+    if ($result) {
+        // Force everything to integer so number_format never gets NULL
+        $stats = [
+            'total'     => (int) ($result['total'] ?? 0),
+            'pending'   => (int) ($result['pending'] ?? 0),
+            'delivered' => (int) ($result['delivered'] ?? 0),
+            'cancelled' => (int) ($result['cancelled'] ?? 0)
+        ];
+    }
+} catch (PDOException $e) {
+    error_log("Stats Query Error: " . $e->getMessage());
+}
 
 $alert = get_alert();
 ?>
@@ -138,14 +148,14 @@ $alert = get_alert();
         </div>
         <?php endif; ?>
 
-        <!-- Statistics Cards -->
+        <!-- Statistics Cards (Added (int) cast for extra safety) -->
         <div class="row g-4 mb-4">
             <div class="col-xl-3 col-md-6">
                 <div class="stat-card stat-card-purple">
                     <div class="stat-icon"><i class="fas fa-shopping-cart"></i></div>
                     <div class="stat-content">
                         <span class="stat-label">Total Orders</span>
-                        <h3 class="stat-value"><?php echo number_format($stats['total']); ?></h3>
+                        <h3 class="stat-value"><?php echo number_format((int)($stats['total'] ?? 0)); ?></h3>
                     </div>
                 </div>
             </div>
@@ -154,7 +164,7 @@ $alert = get_alert();
                     <div class="stat-icon"><i class="fas fa-clock"></i></div>
                     <div class="stat-content">
                         <span class="stat-label">Pending Orders</span>
-                        <h3 class="stat-value"><?php echo number_format($stats['pending']); ?></h3>
+                        <h3 class="stat-value"><?php echo number_format((int)($stats['pending'] ?? 0)); ?></h3>
                     </div>
                 </div>
             </div>
@@ -163,7 +173,7 @@ $alert = get_alert();
                     <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
                     <div class="stat-content">
                         <span class="stat-label">Delivered</span>
-                        <h3 class="stat-value"><?php echo number_format($stats['delivered']); ?></h3>
+                        <h3 class="stat-value"><?php echo number_format((int)($stats['delivered'] ?? 0)); ?></h3>
                     </div>
                 </div>
             </div>
@@ -172,7 +182,7 @@ $alert = get_alert();
                     <div class="stat-icon"><i class="fas fa-times-circle"></i></div>
                     <div class="stat-content">
                         <span class="stat-label">Cancelled</span>
-                        <h3 class="stat-value"><?php echo number_format($stats['cancelled']); ?></h3>
+                        <h3 class="stat-value"><?php echo number_format((int)($stats['cancelled'] ?? 0)); ?></h3>
                     </div>
                 </div>
             </div>

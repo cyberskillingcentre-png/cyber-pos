@@ -45,6 +45,7 @@ foreach ($settings_array as $setting) {
             <div class="card-header"><i class="fas fa-building me-2"></i>Company Information</div>
             <div class="card-body">
                 <form method="POST">
+                    <?php echo csrf_field(); ?>
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Company Name</label>

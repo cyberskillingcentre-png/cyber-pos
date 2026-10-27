@@ -494,13 +494,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 </div>
             </div>
 
-            <!-- Remember / Forgot -->
+            <!-- Remember -->
             <div class="form-extras">
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="remember" name="remember">
                     <label class="form-check-label" for="remember">Remember me</label>
                 </div>
-                <a href="forgot_password.php" class="forgot-link">Forgot password?</a>
             </div>
 
             <!-- 50/50 BUTTONS -->

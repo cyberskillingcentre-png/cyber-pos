@@ -25,21 +25,44 @@ try {
     $pending_count = (int) $stmt->fetchColumn();
 } catch (PDOException $e) {}
 
-// Expiring products (within 30 days)
+// ============================================
+// EXPIRING PRODUCTS COUNT
+// Excludes the Damages/Expires store
+// ============================================
 $expiring_count = 0;
 try {
     $stmt = $conn->prepare("
         SELECT COUNT(DISTINCT si.inventory_id)
         FROM store_inventory si
         JOIN products p ON si.product_id = p.product_id
+        JOIN stores st  ON si.store_id   = st.store_id
         WHERE p.has_expiry = 'yes'
           AND si.expiry_date IS NOT NULL
           AND si.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
           AND si.quantity > 0
+          AND st.store_type = 'sales'
     ");
     $stmt->execute();
     $expiring_count = (int) $stmt->fetchColumn();
-} catch (PDOException $e) {}
+} catch (PDOException $e) {
+    // Fallback: if store_type column doesn't exist yet, use the old query
+    // so the sidebar still renders instead of breaking
+    try {
+        $stmt = $conn->prepare("
+            SELECT COUNT(DISTINCT si.inventory_id)
+            FROM store_inventory si
+            JOIN products p ON si.product_id = p.product_id
+            WHERE p.has_expiry = 'yes'
+              AND si.expiry_date IS NOT NULL
+              AND si.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+              AND si.quantity > 0
+        ");
+        $stmt->execute();
+        $expiring_count = (int) $stmt->fetchColumn();
+    } catch (PDOException $e2) {
+        $expiring_count = 0;
+    }
+}
 
 // Helper for capped badge display
 function badge_text($n, $cap = 99) {
@@ -161,9 +184,6 @@ function badge_text($n, $cap = 99) {
 
             <!-- ============================================
                  INVENTORY
-                 - Parent has no badge and no dot
-                 - "Store Inventory" has no badge and no dot (removed)
-                 - "Expiring Products" keeps its alert
                  ============================================ -->
             <li class="nav-item">
                 <a class="nav-link section-toggle collapsed"
@@ -177,7 +197,7 @@ function badge_text($n, $cap = 99) {
                     <span class="nav-text">Inventory</span>
                     <span class="nav-arrow"><i class="fas fa-chevron-down"></i></span>
                 </a>
-                <div class="collapse <?php echo in_array($current_page, ['products', 'categories', 'inventory', 'purchases', 'expiring-products', 'expiring_products'], true) ? 'show' : ''; ?>"
+                <div class="collapse <?php echo in_array($current_page, ['products', 'categories', 'inventory', 'purchases', 'expiring-products', 'expiring_products', 'damages-report'], true) ? 'show' : ''; ?>"
                      id="inventoryMenu">
                     <ul class="nav flex-column sub-nav">
 
@@ -197,7 +217,6 @@ function badge_text($n, $cap = 99) {
                             </a>
                         </li>
 
-                        <!-- Store Inventory — CLEAN, no dot, no badge -->
                         <li class="nav-item">
                             <a class="nav-link <?php echo ($current_page == 'inventory') ? 'active' : ''; ?>"
                                href="inventory.php">
@@ -216,7 +235,7 @@ function badge_text($n, $cap = 99) {
                             </a>
                         </li>
 
-                        <!-- Expiring Products — keeps the alert -->
+                        <!-- Expiring Products (alert count excludes damages store) -->
                         <li class="nav-item">
                             <a class="nav-link <?php echo ($current_page == 'expiring-products' || $current_page == 'expiring_products') ? 'active' : ''; ?>"
                                href="expiring-products.php"
@@ -238,6 +257,15 @@ function badge_text($n, $cap = 99) {
                             </a>
                         </li>
 
+                        <!-- Damages & Expired report -->
+                        <li class="nav-item">
+                            <a class="nav-link <?php echo ($current_page == 'damages-report') ? 'active' : ''; ?>"
+                               href="damages-report.php">
+                                <span class="nav-icon"><i class="fas fa-trash-alt"></i></span>
+                                <span class="nav-text">Damages &amp; Expired</span>
+                            </a>
+                        </li>
+
                     </ul>
                 </div>
             </li>
@@ -255,11 +283,11 @@ function badge_text($n, $cap = 99) {
                     <span class="nav-text">Sales</span>
                     <span class="nav-arrow"><i class="fas fa-chevron-down"></i></span>
                 </a>
-                <div class="collapse <?php echo in_array($current_page, ['sales', 'returns'], true) ? 'show' : ''; ?>"
+                <div class="collapse <?php echo in_array($current_page, ['sales', 'returns', 'sales_records'], true) ? 'show' : ''; ?>"
                      id="salesMenu">
                     <ul class="nav flex-column sub-nav">
                         <li class="nav-item">
-                            <a class="nav-link <?php echo ($current_page == 'sales') ? 'active' : ''; ?>"
+                            <a class="nav-link <?php echo ($current_page == 'sales' || $current_page == 'sales_records') ? 'active' : ''; ?>"
                                href="sales.php">
                                 <span class="nav-icon"><i class="fas fa-receipt"></i></span>
                                 <span class="nav-text">Sales Records</span>
@@ -289,7 +317,7 @@ function badge_text($n, $cap = 99) {
                     <span class="nav-text">Management</span>
                     <span class="nav-arrow"><i class="fas fa-chevron-down"></i></span>
                 </a>
-                <div class="collapse <?php echo in_array($current_page, ['customers', 'suppliers', 'stores', 'users'], true) ? 'show' : ''; ?>"
+                <div class="collapse <?php echo in_array($current_page, ['customers', 'suppliers', 'stores', 'branches', 'users'], true) ? 'show' : ''; ?>"
                      id="managementMenu">
                     <ul class="nav flex-column sub-nav">
                         <li class="nav-item">

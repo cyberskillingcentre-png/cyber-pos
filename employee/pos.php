@@ -451,6 +451,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                     </div>
                     <div class="card-body">
                         <form id="sale-form" method="POST" <?php echo ($assigned_store_count === 0) ? 'style="pointer-events:none; opacity:0.5;"' : ''; ?>>
+                            <?php echo csrf_field(); ?>
                             <input type="hidden" name="store_id" id="store-id-hidden" value="<?php echo $default_store_id; ?>">
 
                             <div class="mb-3">

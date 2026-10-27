@@ -285,7 +285,7 @@ $alert = get_alert();
                                 </td>
                                 <td class="text-nowrap">
                                     <!-- View -->
-                                    <a href="view_sale.php?id=<?php echo (int)$sale['sale_id']; ?>"
+                                    <a href="view-sale.php?id=<?php echo (int)$sale['sale_id']; ?>"
                                        class="btn btn-sm btn-info" title="View Sale">
                                         <i class="fas fa-eye"></i>
                                     </a>

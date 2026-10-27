@@ -276,7 +276,7 @@ try {
 
 // ---------- Stores dropdown ----------
 try {
-    $stmt = $conn->prepare("SELECT store_id, store_code, store_name FROM stores WHERE status = 'active' ORDER BY store_name");
+    $stmt = $conn->prepare("SELECT store_id, store_code, store_name FROM stores WHERE status = 'active' AND store_type = 'sales' ORDER BY store_name");
     $stmt->execute();
     $stores = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) { $stores = []; }
@@ -1029,7 +1029,7 @@ $stats = [
 
         batchesList.innerHTML = '<div class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Loading batches...</div>';
 
-        fetch('ajax_inventory_batches.php?store_id=' + encodeURIComponent(storeId) + '&product_id=' + encodeURIComponent(productId))
+        fetch('../includes/ajax_inventory_batches.php?store_id=' + encodeURIComponent(storeId) + '&product_id=' + encodeURIComponent(productId))
             .then(r => r.json())
             .then(data => {
                 if (!data.success) {

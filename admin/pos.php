@@ -38,10 +38,23 @@ try {
     if ($check->rowCount() == 0) {
         $conn->exec("ALTER TABLE products ADD COLUMN barcode VARCHAR(100) DEFAULT NULL AFTER product_code");
     }
+
+    $check = $conn->query("SHOW COLUMNS FROM store_inventory LIKE 'status'");
+    if ($check->rowCount() == 0) {
+        $conn->exec("ALTER TABLE store_inventory ADD COLUMN status ENUM('good','damaged','expired','quarantine') NOT NULL DEFAULT 'good' AFTER quantity");
+        $conn->exec("ALTER TABLE store_inventory ADD INDEX idx_si_status (status)");
+    }
 } catch(PDOException $e) {}
 
-// Get active stores
-$stmt = $conn->prepare("SELECT * FROM stores WHERE status = 'active' ORDER BY store_name");
+// ============================================
+// LOAD SALES STORES ONLY
+// ============================================
+$stmt = $conn->prepare("
+    SELECT * FROM stores
+    WHERE status = 'active'
+      AND store_type = 'sales'
+    ORDER BY store_name
+");
 $stmt->execute();
 $stores = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -58,22 +71,34 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
         $store_id = isset($_POST['store_id']) ? intval($_POST['store_id']) : 0;
         if ($store_id <= 0) throw new Exception('Please select a store before completing the sale.');
 
-        $check = $conn->prepare("SELECT store_id FROM stores WHERE store_id = ? AND status = 'active'");
+        $check = $conn->prepare("
+            SELECT store_id, store_name
+            FROM stores
+            WHERE store_id = ?
+              AND status = 'active'
+              AND store_type = 'sales'
+        ");
         $check->execute([$store_id]);
-        if (!$check->fetch()) throw new Exception('Selected store is invalid or inactive.');
+        $valid_store = $check->fetch(PDO::FETCH_ASSOC);
+        if (!$valid_store) {
+            throw new Exception('Selected store is invalid, inactive, or is a damages store.');
+        }
 
         $customer_id = !empty($_POST['customer_id']) ? intval($_POST['customer_id']) : null;
         $payment_method = $_POST['payment_method'] ?? '';
         $amount_paid = floatval($_POST['amount_paid'] ?? 0);
-        $transaction_id = !empty($_POST['transaction_id']) ? sanitize_input($_POST['transaction_id']) : null;
+        $transaction_id = !empty($_POST['transaction_id']) ? trim($_POST['transaction_id']) : null;
         $discount_amount = isset($_POST['discount_amount']) ? floatval($_POST['discount_amount']) : 0;
         $cart_items = json_decode($_POST['cart_items'] ?? '[]', true);
 
         if (empty($cart_items)) throw new Exception('Cart is empty.');
         if (empty($payment_method)) throw new Exception('Please select a payment method.');
+        if (!in_array($payment_method, $payment_methods, true)) {
+            throw new Exception('Invalid payment method.');
+        }
 
-        $sale_type = ($payment_method == 'credit') ? 'credit' : 'cash';
-        if ($sale_type == 'credit' && !$customer_id) throw new Exception('Customer is required for credit sales');
+        $sale_type = ($payment_method === 'credit') ? 'credit' : 'cash';
+        if ($sale_type === 'credit' && !$customer_id) throw new Exception('Customer is required for credit sales');
 
         $subtotal = 0;
         $tax_amount = 0;
@@ -84,7 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
 
         $total_amount = $subtotal + $tax_amount - $discount_amount;
 
-        if ($payment_method != 'credit' && $amount_paid < $total_amount) {
+        if ($payment_method !== 'credit' && $amount_paid < $total_amount) {
             throw new Exception('Amount paid cannot be less than total amount');
         }
 
@@ -124,18 +149,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
             $profit = ($price - $cost) * $quantity;
 
             $stmt = $conn->prepare("
-                INSERT INTO sale_items 
-                (sale_id, product_id, quantity, unit_price, discount_amount, tax_amount, total_price, profit) 
+                INSERT INTO sale_items
+                (sale_id, product_id, quantity, unit_price, discount_amount, tax_amount, total_price, profit)
                 VALUES (?, ?, ?, ?, 0, ?, ?, ?)
             ");
             $stmt->execute([$sale_id, $product_id, $quantity, $price, $tax, $line_total, $profit]);
 
-            // FIFO inventory deduction
+            // FIFO inventory deduction — only 'good' stock
             $remaining_qty = $quantity;
             $stmt = $conn->prepare("
-                SELECT inventory_id, quantity 
-                FROM store_inventory 
-                WHERE store_id = ? AND product_id = ? AND quantity > 0 
+                SELECT inventory_id, quantity
+                FROM store_inventory
+                WHERE store_id = ? AND product_id = ? AND quantity > 0 AND status = 'good'
                 ORDER BY last_updated ASC, inventory_id ASC
             ");
             $stmt->execute([$store_id, $product_id]);
@@ -224,7 +249,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
         <?php endif; ?>
 
         <div class="row g-3">
-            <!-- LEFT -->
             <div class="col-lg-8">
                 <!-- Store Selection -->
                 <div class="card cyber-card mb-3">
@@ -238,7 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                 <select id="store-select" class="form-select form-select-cyber" required>
                                     <option value="">-- Select Store to Begin --</option>
                                     <?php foreach ($stores as $store): ?>
-                                        <option value="<?php echo $store['store_id']; ?>">
+                                        <option value="<?php echo (int)$store['store_id']; ?>">
                                             <?php echo htmlspecialchars($store['store_name']); ?>
                                         </option>
                                     <?php endforeach; ?>
@@ -319,7 +343,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                 </div>
             </div>
 
-            <!-- RIGHT: Sale Summary -->
             <div class="col-lg-4">
                 <div class="card cyber-card summary-card">
                     <div class="card-header">
@@ -365,7 +388,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
                                 <input type="hidden" id="total-value" value="0">
                             </div>
 
-                            <!-- PAYMENT METHOD: DROPDOWN -->
+                            <!-- Payment Method -->
                             <div class="mb-3">
                                 <label class="form-label-cyber">
                                     <i class="fas fa-credit-card me-2"></i>Payment Method
@@ -466,6 +489,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
 .product-item { padding: 16px 18px; border: 2px solid #E2E8F0; border-radius: 10px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s ease; background: #fff; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .product-item:hover { background: linear-gradient(135deg, rgba(107, 70, 193, 0.05), rgba(237, 137, 54, 0.03)); border-color: #6B46C1; transform: translateX(6px); box-shadow: 0 4px 15px rgba(107, 70, 193, 0.15); }
 .product-item.selected { background: linear-gradient(135deg, #6B46C1, #553C9A); color: #fff; border-color: #553C9A; }
+.product-item.selected .product-name,
+.product-item.selected .product-code,
+.product-item.selected .product-price { color: #fff; }
 .product-item.out-of-stock { opacity: 0.5; cursor: not-allowed; background: #F7FAFC; }
 .product-info { flex: 1; min-width: 0; }
 .product-name { font-weight: 700; font-size: 0.95rem; color: #1A202C; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -498,10 +524,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
 .grand-total-box { background: linear-gradient(135deg, #1A202C, #2D3748); border-radius: 10px; padding: 20px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
 .grand-total-label { color: #ED8936; font-weight: 800; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; }
 .grand-total-value { color: #fff; font-weight: 800; font-size: 1.25rem; font-family: 'Courier New', monospace; }
-
-/* ============================================
-   PAYMENT METHOD DROPDOWN
-   ============================================ */
 .payment-select-compact {
     width: 100%;
     padding: 12px 16px;
@@ -521,18 +543,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
     background-position: right 16px center;
     padding-right: 40px;
 }
-
-.payment-select-compact:focus {
-    outline: none;
-    border-color: #6B46C1;
-    background-color: #fff;
-    box-shadow: 0 0 0 3px rgba(107, 70, 193, 0.15);
-}
-
-.payment-select-compact:hover {
-    border-color: #6B46C1;
-}
-
+.payment-select-compact:focus { outline: none; border-color: #6B46C1; background-color: #fff; box-shadow: 0 0 0 3px rgba(107, 70, 193, 0.15); }
+.payment-select-compact:hover { border-color: #6B46C1; }
 .btn-auto-fill { background: rgba(237, 137, 54, 0.15); color: #C05621; border: none; padding: 4px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; cursor: pointer; }
 .amount-input-wrapper { display: flex; align-items: center; background: #F7FAFC; border: 2px solid #E2E8F0; border-radius: 8px; overflow: hidden; }
 .amount-input-wrapper .currency-prefix { padding: 0 12px; background: rgba(72, 187, 120, 0.1); color: #2F855A; height: 100%; display: flex; align-items: center; border-right: 1px solid #E2E8F0; }
@@ -588,9 +600,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['complete_sale'])) {
 <?php include '../includes/footer.php'; ?>
 
 <script>
-/* ============================================
-   POS SYSTEM - GLOBAL STATE
-   ============================================ */
+/* ============================================================
+   POS SYSTEM — COMPLETE JS (v3 — Bulletproof Store Handling)
+   ============================================================ */
+
+/* ---------- GLOBAL STATE ---------- */
 let cart = [];
 let storeId = null;
 let selectedProductIndex = -1;
@@ -598,24 +612,48 @@ let productsData = [];
 let selectedPaymentMethod = '';
 let searchTimeout = null;
 
-/* ============================================
-   LIVE CLOCK
-   ============================================ */
+/* ---------- LIVE CLOCK ---------- */
 function updateClock() {
-    const now = new Date();
-    const clockEl = document.getElementById('live-clock');
-    if (clockEl) clockEl.textContent = now.toLocaleTimeString('en-US', { hour12: false });
+    const el = document.getElementById('live-clock');
+    if (el) el.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
 }
 
-/* ============================================
-   MAIN INIT
-   ============================================ */
-document.addEventListener('DOMContentLoaded', function() {
+/* ---------- STORE GUARD ---------- */
+function requireStore() {
+    if (!storeId) {
+        showToast('Please select a store first', 'warning');
+        const sel = document.getElementById('store-select');
+        if (sel) sel.focus();
+        return false;
+    }
+    return true;
+}
+
+/* ---------- KEYBOARD SHORTCUTS ---------- */
+function setupKeyboardShortcuts() {
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'F12') {
+            e.preventDefault();
+            const btn = document.getElementById('complete-sale-btn');
+            if (btn && !btn.disabled) btn.click();
+        }
+        if (e.ctrlKey && e.key.toLowerCase() === 'b') {
+            e.preventDefault();
+            const t = document.getElementById('sidebarDesktopToggle');
+            if (t) t.click();
+        }
+    });
+}
+
+/* ---------- INIT ---------- */
+document.addEventListener('DOMContentLoaded', function () {
     setInterval(updateClock, 1000);
     updateClock();
 
-    loadCustomers();
+    // Store selector MUST run first
     setupStoreSelector();
+
+    loadCustomers();
     setupPaymentMethods();
     setupProductSearch();
     setupDiscount();
@@ -623,250 +661,223 @@ document.addEventListener('DOMContentLoaded', function() {
     setupClearCart();
     setupFormSubmit();
     setupAutoFill();
+    setupKeyboardShortcuts();
+
+    console.log('[POS] ready — storeId =', storeId);
 });
 
-/* ============================================
-   LOAD CUSTOMERS
-   ============================================ */
-function loadCustomers() {
-    const customerSelect = document.getElementById('customer-select');
-    if (!customerSelect) return;
-
-    fetch('../includes/ajax_customers.php')
-        .then(response => response.json())
-        .then(data => {
-            if (Array.isArray(data)) {
-                data.forEach(customer => {
-                    const option = document.createElement('option');
-                    option.value = customer.customer_id;
-                    option.textContent = customer.customer_name + (customer.phone ? ' - ' + customer.phone : '');
-                    customerSelect.appendChild(option);
-                });
-            }
-        })
-        .catch(error => console.error('Error loading customers:', error));
-}
-
-/* ============================================
-   STORE SELECTOR
-   ============================================ */
+/* ---------- STORE SELECTOR (FIXED) ---------- */
 function setupStoreSelector() {
-    const storeSelect = document.getElementById('store-select');
-    const storeStatus = document.getElementById('store-status');
-    const hiddenInput = document.getElementById('store-id-hidden');
+    const sel = document.getElementById('store-select');
+    const badge = document.getElementById('store-status');
+    const hidden = document.getElementById('store-id-hidden');
 
-    if (!storeSelect) return;
-
-    if (storeSelect.value) {
-        storeId = storeSelect.value;
-        if (hiddenInput) hiddenInput.value = storeId;
-        updateStoreStatus(storeId, storeStatus);
+    if (!sel) {
+        console.error('[store] store-select element not found!');
+        return;
     }
 
-    storeSelect.addEventListener('change', function() {
-        storeId = this.value;
-        if (hiddenInput) hiddenInput.value = storeId;
-        updateStoreStatus(storeId, storeStatus);
+    // Auto-select first real store if only one exists
+    if (sel.options.length === 2 && !sel.value) {
+        sel.selectedIndex = 1;
+    }
+
+    // Initialize state from current selection
+    storeId = sel.value || null;
+    if (hidden) hidden.value = storeId || '';
+    updateStoreBadge(!!storeId);
+    console.log('[store] initial value =', sel.value, '| storeId =', storeId);
+
+    // Listen for changes
+    sel.addEventListener('change', function () {
+        storeId = this.value || null;
+        if (hidden) hidden.value = storeId || '';
+        updateStoreBadge(!!storeId);
         updateCompleteButton();
+        console.log('[store] changed → storeId =', storeId, '(hidden =', hidden ? hidden.value : 'n/a', ')');
+
+        if (storeId) {
+            const s = document.getElementById('product-search');
+            if (s) s.focus();
+        }
     });
 }
 
-function updateStoreStatus(storeId, storeStatus) {
-    if (storeId) {
-        storeStatus.innerHTML = '<span class="status-dot-active"></span><span>Store Active</span>';
-        storeStatus.style.background = 'rgba(72, 187, 120, 0.15)';
-        storeStatus.style.color = '#2F855A';
-        const searchInput = document.getElementById('product-search');
-        if (searchInput) searchInput.focus();
+function updateStoreBadge(active) {
+    const badge = document.getElementById('store-status');
+    if (!badge) return;
+    if (active) {
+        badge.innerHTML = '<span class="status-dot-active"></span><span>Store Active</span>';
+        badge.style.background = 'rgba(72, 187, 120, 0.15)';
+        badge.style.color = '#2F855A';
     } else {
-        storeStatus.innerHTML = '<span class="status-dot-inactive"></span><span>Not Selected</span>';
-        storeStatus.style.background = '#EDF2F7';
-        storeStatus.style.color = '#718096';
+        badge.innerHTML = '<span class="status-dot-inactive"></span><span>Not Selected</span>';
+        badge.style.background = '#EDF2F7';
+        badge.style.color = '#718096';
     }
 }
 
-/* ============================================
-   PAYMENT METHODS — DROPDOWN HANDLER
-   ============================================ */
-function setupPaymentMethods() {
-    const select = document.getElementById('payment-method');
-    if (!select) return;
+/* ---------- LOAD CUSTOMERS ---------- */
+function loadCustomers() {
+    const sel = document.getElementById('customer-select');
+    if (!sel) return;
 
-    select.addEventListener('change', function() {
+    fetch('../includes/ajax_customers.php')
+        .then(r => r.text())
+        .then(text => {
+            let data;
+            try { data = JSON.parse(text); }
+            catch (e) { console.warn('Customers non-JSON:', text.slice(0, 200)); return; }
+            if (!Array.isArray(data)) return;
+
+            data.forEach(c => {
+                const o = document.createElement('option');
+                o.value = c.customer_id;
+                o.textContent = c.customer_name + (c.phone ? ' - ' + c.phone : '');
+                sel.appendChild(o);
+            });
+        })
+        .catch(err => console.warn('Customers load failed:', err));
+}
+
+/* ---------- PAYMENT METHOD ---------- */
+function setupPaymentMethods() {
+    const sel = document.getElementById('payment-method');
+    if (!sel) return;
+
+    sel.addEventListener('change', function () {
         selectedPaymentMethod = this.value;
         updatePaymentUI(selectedPaymentMethod);
         updateCompleteButton();
     });
 }
 
-function updatePaymentUI(paymentMethod) {
-    const paymentSection = document.getElementById('payment-section');
-    const creditNotice = document.getElementById('credit-notice');
-    const customerRequired = document.getElementById('customer-required');
-    const transactionSection = document.getElementById('transaction-id-section');
-    const transactionInput = document.getElementById('transaction-id');
-    const amountPaid = document.getElementById('amount-paid');
+function updatePaymentUI(pm) {
+    const paySec = document.getElementById('payment-section');
+    const credit = document.getElementById('credit-notice');
+    const custReq = document.getElementById('customer-required');
+    const txSec = document.getElementById('transaction-id-section');
+    const txInput = document.getElementById('transaction-id');
+    const paid = document.getElementById('amount-paid');
 
-    if (paymentMethod === 'credit') {
-        paymentSection.style.display = 'block';
-        creditNotice.style.display = 'flex';
-        customerRequired.style.display = 'inline-block';
-        transactionSection.style.display = 'none';
-        transactionInput.removeAttribute('required');
-        amountPaid.value = 0;
-        amountPaid.removeAttribute('required');
-    } else if (paymentMethod === 'mobile_money') {
-        paymentSection.style.display = 'block';
-        creditNotice.style.display = 'none';
-        customerRequired.style.display = 'none';
-        transactionSection.style.display = 'block';
-        transactionInput.setAttribute('required', 'required');
-        amountPaid.setAttribute('required', 'required');
+    if (pm === 'credit') {
+        paySec.style.display = 'block';
+        credit.style.display = 'flex';
+        custReq.style.display = 'inline-block';
+        txSec.style.display = 'none';
+        txInput.removeAttribute('required');
+        paid.value = 0;
+        paid.removeAttribute('required');
+    } else if (pm === 'mobile_money') {
+        paySec.style.display = 'block';
+        credit.style.display = 'none';
+        custReq.style.display = 'none';
+        txSec.style.display = 'block';
+        txInput.setAttribute('required', 'required');
+        paid.setAttribute('required', 'required');
     } else {
-        paymentSection.style.display = 'block';
-        creditNotice.style.display = 'none';
-        customerRequired.style.display = 'none';
-        transactionSection.style.display = 'none';
-        transactionInput.removeAttribute('required');
-        amountPaid.setAttribute('required', 'required');
+        paySec.style.display = 'block';
+        credit.style.display = 'none';
+        custReq.style.display = 'none';
+        txSec.style.display = 'none';
+        txInput.removeAttribute('required');
+        paid.setAttribute('required', 'required');
     }
     calculateChange();
 }
 
-/* ============================================
-   PRODUCT SEARCH + BARCODE SCANNING
-   ============================================ */
+/* ============================================================
+   PRODUCT SEARCH — LIVE AS YOU TYPE
+   ============================================================ */
 function setupProductSearch() {
-    const searchInput = document.getElementById('product-search');
-    if (!searchInput) return;
+    const input = document.getElementById('product-search');
+    if (!input) return;
 
-    searchInput.addEventListener('keydown', function(e) {
+    input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
             e.preventDefault();
+            const q = this.value.trim();
+            if (!q) return;
 
-            const query = this.value.trim();
-            if (!query) return;
+            if (!requireStore()) { this.value = ''; clearSearchResults(); return; }
 
-            if (/^\d{8,13}$/.test(query)) {
-                lookupByBarcode(query);
+            if (/^\d{8,13}$/.test(q)) {
+                lookupByBarcode(q);
                 return;
             }
 
-            if (selectedProductIndex >= 0 && productsData[selectedProductIndex]) {
-                const product = productsData[selectedProductIndex];
-                if (product.quantity > 0) {
-                    addToCart(
-                        product.product_id,
-                        product.product_name,
-                        product.selling_price,
-                        product.purchase_price,
-                        product.tax_rate,
-                        product.quantity
-                    );
+            if (selectedProductIndex >= 0
+                && Array.isArray(productsData)
+                && productsData[selectedProductIndex]) {
+                const p = productsData[selectedProductIndex];
+                const qty = parseInt(p.quantity) || 0;
+                if (qty > 0) {
+                    addToCart(p.product_id, p.product_name, p.selling_price, p.purchase_price, p.tax_rate, qty);
+                } else {
+                    showToast('Out of stock', 'warning');
                 }
             } else {
                 searchProducts();
             }
-        } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            return;
+        }
+
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault();
             navigateProducts(e.key);
-        } else if (e.key === 'Escape') {
-            clearSearchResults();
+            return;
         }
+
+        if (e.key === 'Escape') clearSearchResults();
     });
 
-    searchInput.addEventListener('input', function() {
+    input.addEventListener('input', function () {
         clearTimeout(searchTimeout);
-        const query = this.value;
+        const q = this.value.trim();
 
-        if (query.length >= 2) {
-            searchTimeout = setTimeout(searchProducts, 300);
-        } else if (query.length === 0) {
-            clearSearchResults();
-        }
+        if (!storeId) { clearSearchResults(); return; }
+        if (q.length === 0) { clearSearchResults(); return; }
+        if (/^\d{8,}$/.test(q)) return;
+
+        searchTimeout = setTimeout(() => searchProducts(), 200);
     });
 }
 
-/* ============================================
-   BARCODE LOOKUP
-   ============================================ */
-function lookupByBarcode(barcode) {
-    const searchInput = document.getElementById('product-search');
-
-    if (!storeId) {
-        showToast('Please select a store first', 'warning');
-        return;
-    }
-
-    fetch('../includes/ajax_lookup_barcode.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'barcode=' + encodeURIComponent(barcode) + '&store_id=' + encodeURIComponent(storeId)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success && data.product) {
-            const product = data.product;
-
-            if (product.quantity <= 0) {
-                showToast(product.product_name + ' is out of stock', 'warning');
-                searchInput.value = '';
-                return;
-            }
-
-            addToCart(
-                product.product_id,
-                product.product_name,
-                product.selling_price,
-                product.purchase_price,
-                product.tax_rate,
-                product.quantity
-            );
-
-            searchInput.value = '';
-            clearSearchResults();
-        } else {
-            showToast('No product found for barcode: ' + barcode, 'error');
-            searchInput.value = '';
-        }
-    })
-    .catch(error => {
-        console.error('Barcode lookup error:', error);
-        showToast('Error scanning barcode', 'error');
-    });
-}
-
-/* ============================================
-   SEARCH PRODUCTS (TEXT)
-   ============================================ */
+/* ---------- SEARCH BY TEXT ---------- */
 function searchProducts() {
-    const query = document.getElementById('product-search').value.trim();
+    const input = document.getElementById('product-search');
+    const query = input.value.trim();
 
     if (!storeId) {
-        showToast('Please select a store first', 'warning');
+        showSearchMessage('⚠️ Please select a store first.', 'warning');
         return;
     }
-
-    if (query.length < 2) return;
+    if (query.length < 1) return;
 
     fetch('../includes/ajax_search_products.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'query=' + encodeURIComponent(query) + '&store_id=' + encodeURIComponent(storeId)
     })
-    .then(response => response.json())
-    .then(products => {
-        if (products.error) {
-            document.getElementById('search-results').innerHTML =
-                '<div style="padding:20px;color:#E53E3E;">' + products.error + '</div>';
-            document.getElementById('search-results-container').style.display = 'block';
+    .then(async response => {
+        const text = await response.text();
+        console.log('[search]', response.status, text.slice(0, 300));
+        if (!response.ok) throw new Error('HTTP ' + response.status + ' — ' + text.slice(0, 200));
+        try { return JSON.parse(text); }
+        catch (e) { throw new Error('Non-JSON: ' + text.slice(0, 200)); }
+    })
+    .then(data => {
+        if (data && !Array.isArray(data)) {
+            showSearchMessage('⚠️ ' + (data.error || data.message || 'Search failed'), 'danger');
+            productsData = [];
+            selectedProductIndex = -1;
             return;
         }
 
+        const products = Array.isArray(data) ? data : [];
+
         if (products.length === 0) {
-            document.getElementById('search-results').innerHTML =
-                '<div style="text-align:center;padding:40px;color:#A0AEC0;"><i class="fas fa-search" style="font-size:3rem;opacity:0.3;margin-bottom:16px;display:block;"></i><p>No products found</p></div>';
-            document.getElementById('search-results-container').style.display = 'block';
+            showSearchMessage('🔍 No products found for "<strong>' + query + '</strong>"', 'empty');
             productsData = [];
             selectedProductIndex = -1;
             return;
@@ -877,82 +888,161 @@ function searchProducts() {
         renderProducts();
         document.getElementById('search-results-container').style.display = 'block';
     })
-    .catch(error => {
-        console.error('Search error:', error);
-        showToast('Error searching products', 'error');
+    .catch(err => {
+        console.error('Search failed:', err);
+        showSearchMessage('<strong>Search failed</strong><br><small>' + err.message + '</small>', 'danger');
     });
 }
 
+/* ---------- SEARCH BY BARCODE ---------- */
+function lookupByBarcode(barcode) {
+    if (!storeId) {
+        showSearchMessage('⚠️ Please select a store first.', 'warning');
+        return;
+    }
+
+    const input = document.getElementById('product-search');
+
+    fetch('../includes/ajax_lookup_barcode.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'barcode=' + encodeURIComponent(barcode) + '&store_id=' + encodeURIComponent(storeId)
+    })
+    .then(async response => {
+        const text = await response.text();
+        console.log('[barcode]', response.status, text.slice(0, 300));
+        if (!response.ok) throw new Error('HTTP ' + response.status + ' — ' + text.slice(0, 200));
+        try { return JSON.parse(text); }
+        catch (e) { throw new Error('Non-JSON: ' + text.slice(0, 200)); }
+    })
+    .then(data => {
+        if (data.success && data.product) {
+            const p = data.product;
+            if (parseInt(p.quantity) <= 0) {
+                showSearchMessage('❌ ' + p.product_name + ' is out of stock', 'warning');
+            } else {
+                addToCart(p.product_id, p.product_name, p.selling_price, p.purchase_price, p.tax_rate, p.quantity);
+            }
+        } else {
+            showSearchMessage('❌ ' + (data.message || 'No product for barcode: ' + barcode), 'danger');
+        }
+        input.value = '';
+    })
+    .catch(err => {
+        console.error('Barcode failed:', err);
+        showSearchMessage('<strong>Barcode error</strong><br><small>' + err.message + '</small>', 'danger');
+        input.value = '';
+    });
+}
+
+/* ---------- ALWAYS-VISIBLE MESSAGE ---------- */
+function showSearchMessage(html, kind) {
+    const box = document.getElementById('search-results');
+    const container = document.getElementById('search-results-container');
+    if (!box || !container) return;
+
+    const colors = {
+        warning: { bg: '#FEF3C7', border: '#F59E0B', text: '#92400E' },
+        danger:  { bg: '#FEE2E2', border: '#EF4444', text: '#991B1B' },
+        empty:   { bg: '#F7FAFC', border: '#CBD5E0', text: '#4A5568' },
+        info:    { bg: '#DBEAFE', border: '#3B82F6', text: '#1E40AF' }
+    };
+    const c = colors[kind] || colors.info;
+
+    box.innerHTML = `
+        <div style="
+            padding:20px;
+            background:${c.bg};
+            border-left:4px solid ${c.border};
+            border-radius:8px;
+            color:${c.text};
+            font-size:0.9rem;
+            font-weight:600;
+        ">${html}</div>
+    `;
+    container.style.display = 'block';
+}
+
+/* ---------- RENDER RESULTS ---------- */
 function renderProducts() {
+    const box = document.getElementById('search-results');
+    if (!box) return;
+
+    if (!Array.isArray(productsData) || productsData.length === 0) {
+        box.innerHTML = '<div style="text-align:center;padding:40px;color:#A0AEC0;"><p>No products to display</p></div>';
+        return;
+    }
+
     let html = '';
-    productsData.forEach(function(product, index) {
-        const outOfStock = product.quantity <= 0;
-        const selectedClass = index === selectedProductIndex ? 'selected' : '';
-        const disabledClass = outOfStock ? 'out-of-stock' : '';
+    productsData.forEach(function (p, i) {
+        const qty = parseInt(p.quantity) || 0;
+        const out = qty <= 0;
+        const cls = (i === selectedProductIndex ? 'selected' : '') + (out ? ' out-of-stock' : '');
 
-        let stockClass = 'stock-good';
-        if (outOfStock) stockClass = 'stock-out';
-        else if (product.quantity <= 10) stockClass = 'stock-low';
+        let stockCls = 'stock-good';
+        if (out) stockCls = 'stock-out';
+        else if (qty <= 10) stockCls = 'stock-low';
 
-        const clickHandler = outOfStock ? '' :
-            `onclick="addToCart(${product.product_id}, '${String(product.product_name).replace(/'/g, "\\'")}', ${product.selling_price}, ${product.purchase_price}, ${product.tax_rate}, ${product.quantity})"`;
+        const price = parseFloat(p.selling_price) || 0;
+        const cost = parseFloat(p.purchase_price) || 0;
+        const tax = parseFloat(p.tax_rate) || 0;
+        const name = String(p.product_name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        const code = p.product_code || '';
+
+        const click = out ? '' :
+            `onclick="addToCart(${p.product_id}, '${name}', ${price}, ${cost}, ${tax}, ${qty})"`;
 
         html += `
-            <div class="product-item ${selectedClass} ${disabledClass}" data-index="${index}" ${clickHandler}>
+            <div class="product-item ${cls}" data-index="${i}" ${click}>
                 <div class="product-info">
-                    <div class="product-name">${product.product_name}</div>
-                    <div class="product-code">
-                        <i class="fas fa-barcode me-1"></i>${product.product_code}
-                    </div>
+                    <div class="product-name">${p.product_name}</div>
+                    <div class="product-code"><i class="fas fa-barcode me-1"></i>${code}</div>
                 </div>
                 <div class="product-details">
-                    <div class="product-price">UGX ${parseFloat(product.selling_price).toFixed(2)}</div>
-                    <span class="stock-badge ${stockClass}">
-                        ${outOfStock ? '❌ Out of Stock' : '📦 Stock: ' + product.quantity}
+                    <div class="product-price">UGX ${price.toFixed(2)}</div>
+                    <span class="stock-badge ${stockCls}">
+                        ${out ? '❌ Out of Stock' : '📦 Stock: ' + qty}
                     </span>
                 </div>
-            </div>
-        `;
+            </div>`;
     });
-    document.getElementById('search-results').innerHTML = html;
+
+    box.innerHTML = html;
 }
 
 function navigateProducts(key) {
-    if (productsData.length === 0) return;
+    if (!Array.isArray(productsData) || productsData.length === 0) return;
 
     if (key === 'ArrowDown') {
         selectedProductIndex = (selectedProductIndex + 1) % productsData.length;
-    } else if (key === 'ArrowUp') {
-        selectedProductIndex = selectedProductIndex <= 0 ? productsData.length - 1 : selectedProductIndex - 1;
+    } else {
+        selectedProductIndex = selectedProductIndex <= 0
+            ? productsData.length - 1
+            : selectedProductIndex - 1;
     }
-
     renderProducts();
-    const selectedElement = document.querySelector('.product-item.selected');
-    if (selectedElement) selectedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const sel = document.querySelector('.product-item.selected');
+    if (sel) sel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function clearSearchResults() {
-    document.getElementById('search-results-container').style.display = 'none';
-    document.getElementById('search-results').innerHTML = '';
+    const c = document.getElementById('search-results-container');
+    const b = document.getElementById('search-results');
+    if (c) c.style.display = 'none';
+    if (b) b.innerHTML = '';
     productsData = [];
     selectedProductIndex = -1;
 }
 
-/* ============================================
-   CART
-   ============================================ */
-function addToCart(productId, productName, price, cost, taxRate, availableQty) {
-    if (availableQty <= 0) {
-        showToast('Product is out of stock', 'warning');
-        return;
-    }
+/* ---------- CART ---------- */
+function addToCart(productId, name, price, cost, taxRate, availableQty) {
+    if (parseInt(availableQty) <= 0) { showToast('Out of stock', 'warning'); return; }
 
-    const existingItem = cart.find(item => item.product_id === productId);
-
-    if (existingItem) {
-        if (existingItem.quantity < availableQty) {
-            existingItem.quantity++;
-            showToast(`${productName} - Qty: ${existingItem.quantity}`, 'success');
+    const existing = cart.find(i => i.product_id === productId);
+    if (existing) {
+        if (existing.quantity < availableQty) {
+            existing.quantity++;
+            showToast(`${name} — Qty: ${existing.quantity}`, 'success');
         } else {
             showToast('Stock limit reached', 'warning');
             return;
@@ -960,93 +1050,85 @@ function addToCart(productId, productName, price, cost, taxRate, availableQty) {
     } else {
         cart.push({
             product_id: productId,
-            product_name: productName,
+            product_name: name,
             price: parseFloat(price),
             cost: parseFloat(cost),
             tax_rate: parseFloat(taxRate),
             quantity: 1,
             available_qty: parseInt(availableQty)
         });
-        showToast(`✓ ${productName}`, 'success');
+        showToast(`✓ ${name}`, 'success');
     }
 
     updateCart();
     clearSearchResults();
 
-    const searchInput = document.getElementById('product-search');
-    if (searchInput) {
-        searchInput.value = '';
-        searchInput.focus();
-    }
+    const input = document.getElementById('product-search');
+    if (input) { input.value = ''; input.focus(); }
 }
 
-function removeFromCart(index) {
-    const item = cart[index];
+function removeFromCart(i) {
+    const item = cart[i];
     if (!item) return;
-    cart.splice(index, 1);
+    cart.splice(i, 1);
     updateCart();
     showToast(`${item.product_name} removed`, 'info');
 }
 
-function updateQuantity(index, newQty) {
+function updateQuantity(i, newQty) {
     newQty = parseInt(newQty);
-    if (newQty > 0 && newQty <= cart[index].available_qty) {
-        cart[index].quantity = newQty;
+    if (newQty > 0 && newQty <= cart[i].available_qty) {
+        cart[i].quantity = newQty;
         updateCart();
-    } else if (newQty > cart[index].available_qty) {
-        showToast('Quantity exceeds available stock', 'warning');
+    } else if (newQty > cart[i].available_qty) {
+        showToast('Exceeds stock', 'warning');
         updateCart();
     }
 }
 
 function updateCart() {
-    const cartContainer = document.getElementById('cart-items');
-    document.getElementById('cart-count').textContent = cart.length;
+    const box = document.getElementById('cart-items');
+    const cnt = document.getElementById('cart-count');
+    if (cnt) cnt.textContent = cart.length;
 
     if (cart.length === 0) {
-        cartContainer.innerHTML = `
-            <tr class="empty-cart-row">
-                <td colspan="6">
-                    <div class="empty-cart">
-                        <i class="fas fa-shopping-basket"></i>
-                        <h5>Cart is Empty</h5>
-                        <p>Scan a barcode or search to begin</p>
-                    </div>
-                </td>
-            </tr>
-        `;
+        box.innerHTML = `<tr class="empty-cart-row"><td colspan="6">
+            <div class="empty-cart">
+                <i class="fas fa-shopping-basket"></i>
+                <h5>Cart is Empty</h5>
+                <p>Scan a barcode or search to begin</p>
+            </div></td></tr>`;
     } else {
         let html = '';
-        cart.forEach(function(item, index) {
-            const taxAmount = (item.price * item.quantity * item.tax_rate / 100);
-            item.tax_amount = taxAmount;
-            const subtotal = item.price * item.quantity;
+        cart.forEach((item, i) => {
+            const tax = item.price * item.quantity * item.tax_rate / 100;
+            item.tax_amount = tax;
+            const sub = item.price * item.quantity;
 
-            html += `
-                <tr>
-                    <td><div class="cart-product-name">${item.product_name}</div></td>
-                    <td><span style="font-family:'Courier New',monospace;font-weight:600;">${item.price.toFixed(2)}</span></td>
-                    <td><input type="number" class="cart-qty-input" value="${item.quantity}" min="1" max="${item.available_qty}" onchange="updateQuantity(${index}, this.value)"></td>
-                    <td><span style="font-family:'Courier New',monospace;color:#718096;font-size:0.8rem;">${taxAmount.toFixed(2)}</span></td>
-                    <td><span style="font-family:'Courier New',monospace;font-weight:700;color:#6B46C1;">${subtotal.toFixed(2)}</span></td>
-                    <td><button type="button" class="btn-remove-item" onclick="removeFromCart(${index})"><i class="fas fa-trash"></i></button></td>
-                </tr>
-            `;
+            html += `<tr>
+                <td><div class="cart-product-name">${item.product_name}</div></td>
+                <td><span style="font-family:'Courier New',monospace;font-weight:600;">${item.price.toFixed(2)}</span></td>
+                <td><input type="number" class="cart-qty-input" value="${item.quantity}" min="1" max="${item.available_qty}" onchange="updateQuantity(${i}, this.value)"></td>
+                <td><span style="font-family:'Courier New',monospace;color:#718096;font-size:0.8rem;">${tax.toFixed(2)}</span></td>
+                <td><span style="font-family:'Courier New',monospace;font-weight:700;color:#6B46C1;">${sub.toFixed(2)}</span></td>
+                <td><button type="button" class="btn-remove-item" onclick="removeFromCart(${i})"><i class="fas fa-trash"></i></button></td>
+            </tr>`;
         });
-        cartContainer.innerHTML = html;
+        box.innerHTML = html;
     }
     updateTotals();
 }
 
+/* ---------- TOTALS ---------- */
 function updateTotals() {
-    let subtotal = 0, taxTotal = 0;
-    cart.forEach(i => { subtotal += i.price * i.quantity; taxTotal += i.tax_amount || 0; });
+    let sub = 0, tax = 0;
+    cart.forEach(i => { sub += i.price * i.quantity; tax += i.tax_amount || 0; });
 
-    const discount = parseFloat(document.getElementById('discount-input').value) || 0;
-    const total = Math.max(0, subtotal + taxTotal - discount);
+    const disc = parseFloat(document.getElementById('discount-input').value) || 0;
+    const total = Math.max(0, sub + tax - disc);
 
-    document.getElementById('subtotal-display').textContent = 'UGX ' + subtotal.toFixed(2);
-    document.getElementById('tax-display').textContent = 'UGX ' + taxTotal.toFixed(2);
+    document.getElementById('subtotal-display').textContent = 'UGX ' + sub.toFixed(2);
+    document.getElementById('tax-display').textContent = 'UGX ' + tax.toFixed(2);
     document.getElementById('total-display').textContent = 'UGX ' + total.toFixed(2);
     document.getElementById('total-value').value = total.toFixed(2);
 
@@ -1059,6 +1141,7 @@ function calculateChange() {
     const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
     const change = paid - total;
     const cc = document.getElementById('change-container');
+
     if (change > 0) {
         document.getElementById('change-display').textContent = 'UGX ' + change.toFixed(2);
         cc.style.display = 'flex';
@@ -1069,22 +1152,23 @@ function calculateChange() {
 
 function updateCompleteButton() {
     const btn = document.getElementById('complete-sale-btn');
-    const paymentMethod = document.getElementById('payment-method').value;
+    const pm = document.getElementById('payment-method').value;
     const total = parseFloat(document.getElementById('total-value').value) || 0;
     const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
     const err = document.getElementById('amount-error');
 
-    let ok = (storeId !== null && storeId !== '') && cart.length > 0 && paymentMethod !== '';
+    let ok = !!storeId && cart.length > 0 && pm !== '';
 
-    if (paymentMethod && paymentMethod !== 'credit') {
+    if (pm && pm !== 'credit') {
         if (paid < total) { err.classList.remove('d-none'); ok = false; }
-        else { err.classList.add('d-none'); }
+        else err.classList.add('d-none');
     } else {
         err.classList.add('d-none');
     }
     btn.disabled = !ok;
 }
 
+/* ---------- SETUP HELPERS ---------- */
 function setupDiscount() {
     const el = document.getElementById('discount-input');
     if (el) el.addEventListener('input', updateTotals);
@@ -1092,14 +1176,14 @@ function setupDiscount() {
 
 function setupAmountPaid() {
     const el = document.getElementById('amount-paid');
-    if (el) el.addEventListener('input', function() { calculateChange(); updateCompleteButton(); });
+    if (el) el.addEventListener('input', function () { calculateChange(); updateCompleteButton(); });
 }
 
 function setupAutoFill() {
     const btn = document.getElementById('auto-fill-btn');
-    if (btn) btn.addEventListener('click', function() {
-        const total = parseFloat(document.getElementById('total-value').value) || 0;
-        document.getElementById('amount-paid').value = total.toFixed(2);
+    if (btn) btn.addEventListener('click', function () {
+        const t = parseFloat(document.getElementById('total-value').value) || 0;
+        document.getElementById('amount-paid').value = t.toFixed(2);
         calculateChange();
         updateCompleteButton();
     });
@@ -1108,7 +1192,7 @@ function setupAutoFill() {
 function setupClearCart() {
     const btn = document.getElementById('clear-cart');
     if (!btn) return;
-    btn.addEventListener('click', function() {
+    btn.addEventListener('click', function () {
         if (cart.length === 0) return;
         if (confirm('Clear cart?')) {
             cart = [];
@@ -1122,24 +1206,24 @@ function setupFormSubmit() {
     const form = document.getElementById('sale-form');
     if (!form) return;
 
-    form.addEventListener('submit', function(e) {
-        if (!storeId) { e.preventDefault(); showToast('Please select a store', 'warning'); return false; }
-        if (cart.length === 0) { e.preventDefault(); showToast('Cart is empty', 'warning'); return false; }
+    form.addEventListener('submit', function (e) {
+        if (!storeId) { e.preventDefault(); showToast('Select a store', 'warning'); return; }
+        if (cart.length === 0) { e.preventDefault(); showToast('Cart is empty', 'warning'); return; }
 
         const pm = document.getElementById('payment-method').value;
-        if (!pm) { e.preventDefault(); showToast('Select a payment method', 'warning'); return false; }
+        if (!pm) { e.preventDefault(); showToast('Select a payment method', 'warning'); return; }
 
         if (pm === 'credit' && !document.getElementById('customer-select').value) {
-            e.preventDefault(); showToast('Customer required for credit', 'warning'); return false;
+            e.preventDefault(); showToast('Customer required for credit', 'warning'); return;
         }
         if (pm === 'mobile_money' && !document.getElementById('transaction-id').value) {
-            e.preventDefault(); showToast('Transaction ID required', 'warning'); return false;
+            e.preventDefault(); showToast('Transaction ID required', 'warning'); return;
         }
 
         const total = parseFloat(document.getElementById('total-value').value) || 0;
         const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
         if (pm !== 'credit' && paid < total) {
-            e.preventDefault(); showToast('Amount paid is less than total', 'warning'); return false;
+            e.preventDefault(); showToast('Amount paid is less than total', 'warning'); return;
         }
 
         document.getElementById('store-id-hidden').value = storeId;
@@ -1151,49 +1235,37 @@ function setupFormSubmit() {
     });
 }
 
-/* ============================================
-   TOAST NOTIFICATIONS
-   ============================================ */
+/* ---------- TOAST ---------- */
 function showToast(message, type) {
     type = type || 'info';
     const icons = { success: 'check-circle', warning: 'exclamation-triangle', error: 'times-circle', info: 'info-circle' };
     const colors = { success: '#48BB78', warning: '#ED8936', error: '#E53E3E', info: '#6B46C1' };
 
-    const existing = document.querySelector('.pos-toast');
-    if (existing) existing.remove();
+    document.querySelectorAll('.pos-toast').forEach(t => t.remove());
 
     const toast = document.createElement('div');
     toast.className = 'pos-toast';
     toast.style.cssText = `
-        position: fixed; top: 80px; right: 20px; background: white;
-        padding: 14px 20px; border-radius: 10px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        border-left: 4px solid ${colors[type]};
-        display: flex; align-items: center; gap: 12px;
-        z-index: 9999; min-width: 250px;
-        font-weight: 600; color: #1A202C;
-        font-family: 'Inter', sans-serif;
-        animation: slideInRight 0.3s ease;
-    `;
-    toast.innerHTML = `<i class="fas fa-${icons[type]}" style="color: ${colors[type]}; font-size: 1.2rem;"></i><span>${message}</span>`;
+        position:fixed; top:80px; right:20px; background:white;
+        padding:14px 20px; border-radius:10px;
+        box-shadow:0 10px 30px rgba(0,0,0,0.2);
+        border-left:4px solid ${colors[type]};
+        display:flex; align-items:center; gap:12px;
+        z-index:9999; min-width:250px;
+        font-weight:600; color:#1A202C;
+        animation:slideInRight 0.3s ease;`;
+    toast.innerHTML = `<i class="fas fa-${icons[type]}" style="color:${colors[type]};font-size:1.2rem;"></i><span>${message}</span>`;
     document.body.appendChild(toast);
 
-    setTimeout(function() {
+    setTimeout(() => {
         toast.style.animation = 'slideOutRight 0.3s ease';
-        setTimeout(function() { toast.remove(); }, 300);
+        setTimeout(() => toast.remove(), 300);
     }, 2000);
 }
 
-const toastStyles = document.createElement('style');
-toastStyles.textContent = `
-    @keyframes slideInRight {
-        from { transform: translateX(100%); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
-    }
-    @keyframes slideOutRight {
-        from { transform: translateX(0); opacity: 1; }
-        to { transform: translateX(100%); opacity: 0; }
-    }
-`;
-document.head.appendChild(toastStyles);
+const toastCSS = document.createElement('style');
+toastCSS.textContent = `
+@keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes slideOutRight { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }`;
+document.head.appendChild(toastCSS);
 </script>

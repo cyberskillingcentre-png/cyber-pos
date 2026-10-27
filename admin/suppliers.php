@@ -15,11 +15,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
         // ----------------------------------------
         if ($_POST['action'] == 'add') {
             $supplier_code  = 'SUP' . rand(1000, 9999);
-            $supplier_name  = sanitize_input($_POST['supplier_name'] ?? '');
-            $contact_person = sanitize_input($_POST['contact_person'] ?? '');
-            $email          = sanitize_input($_POST['email'] ?? '');
-            $phone          = sanitize_input($_POST['phone'] ?? '');
-            $address        = sanitize_input($_POST['address'] ?? '');
+            $supplier_name  = trim($_POST['supplier_name'] ?? '');
+            $contact_person = trim($_POST['contact_person'] ?? '');
+            $email          = trim($_POST['email'] ?? '');
+            $phone          = trim($_POST['phone'] ?? '');
+            $address        = trim($_POST['address'] ?? '');
 
             if ($supplier_name === '') {
                 throw new Exception('Supplier name is required.');
@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
             log_activity($_SESSION['user_id'], 'SUPPLIER_CREATED',
                          "Created supplier: $supplier_name", $conn);
             set_alert('success', 'Supplier added successfully!');
-            header('Location: Suppliers');
+            header('Location: Suppliers.php');
             exit();
         }
 
@@ -54,11 +54,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
         // ----------------------------------------
         if ($_POST['action'] == 'edit') {
             $supplier_id    = intval($_POST['supplier_id'] ?? 0);
-            $supplier_name  = sanitize_input($_POST['supplier_name'] ?? '');
-            $contact_person = sanitize_input($_POST['contact_person'] ?? '');
-            $email          = sanitize_input($_POST['email'] ?? '');
-            $phone          = sanitize_input($_POST['phone'] ?? '');
-            $address        = sanitize_input($_POST['address'] ?? '');
+            $supplier_name  = trim($_POST['supplier_name'] ?? '');
+            $contact_person = trim($_POST['contact_person'] ?? '');
+            $email          = trim($_POST['email'] ?? '');
+            $phone          = trim($_POST['phone'] ?? '');
+            $address        = trim($_POST['address'] ?? '');
             $status         = $_POST['status'] ?? 'active';
 
             if ($supplier_id <= 0) {
@@ -71,7 +71,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
                 $status = 'active';
             }
 
-            // Confirm supplier exists
             $check = $conn->prepare("SELECT supplier_name FROM suppliers WHERE supplier_id = ?");
             $check->execute([$supplier_id]);
             $existing = $check->fetch();
@@ -97,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
             log_activity($_SESSION['user_id'], 'SUPPLIER_UPDATED',
                          "Updated supplier: {$existing['supplier_name']} → $supplier_name", $conn);
             set_alert('success', 'Supplier updated successfully!');
-            header('Location: Suppliers');
+            header('Location: Suppliers.php');
             exit();
         }
 
@@ -110,14 +109,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
                 throw new Exception('Invalid supplier.');
             }
 
-            // Soft delete — set status to inactive
             $stmt = $conn->prepare("UPDATE suppliers SET status = 'inactive' WHERE supplier_id = ?");
             $stmt->execute([$supplier_id]);
 
             log_activity($_SESSION['user_id'], 'SUPPLIER_DEACTIVATED',
                          "Deactivated supplier ID: $supplier_id", $conn);
             set_alert('success', 'Supplier deactivated.');
-            header('Location: Suppliers');
+            header('Location: Suppliers.php');
             exit();
         }
 
@@ -135,7 +133,7 @@ $stmt = $conn->prepare("
     ORDER BY supplier_name
 ");
 $stmt->execute();
-$suppliers = $stmt->fetchAll();
+$suppliers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <?php include '../includes/header.php'; ?>
@@ -202,7 +200,7 @@ $suppliers = $stmt->fetchAll();
 
                                     <form method="POST" style="display:inline-block;"
                                           onsubmit="return confirm('Deactivate this supplier?');">
-                                          <?php echo csrf_field(); ?>
+                                        <?php echo csrf_field(); ?>
                                         <input type="hidden" name="supplier_id" value="<?php echo (int) $sup['supplier_id']; ?>">
                                         <button type="submit" name="action" value="delete"
                                                 class="btn btn-sm btn-danger" title="Deactivate Supplier">
@@ -326,9 +324,6 @@ $suppliers = $stmt->fetchAll();
 
 <script>
 jQuery(document).ready(function($) {
-    // ============================================
-    // EDIT SUPPLIER — populate and show modal
-    // ============================================
     $(document).on('click', '.edit-btn', function() {
         const btn = $(this);
 
@@ -344,7 +339,6 @@ jQuery(document).ready(function($) {
         $('#editModal').modal('show');
     });
 
-    // Clear form when edit modal closes
     $('#editModal').on('hidden.bs.modal', function() {
         $('#editForm')[0].reset();
     });

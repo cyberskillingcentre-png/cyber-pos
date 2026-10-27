@@ -14,7 +14,7 @@ if (session_status() === PHP_SESSION_NONE) {
 // Database Credentials - ALWAYS DEFINED
 define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
-define('DB_PASS', '');
+define('DB_PASS', 'waniaye@Tech1');
 
 
 // ============================================
@@ -149,13 +149,40 @@ class Database {
 }
 
 // Security Functions
-function sanitize_input($data) {
+/**
+ * Sanitize input destined for the DATABASE.
+ * Does NOT HTML-encode — we escape on output instead.
+ * Use this in INSERT / UPDATE handlers.
+ */
+/**
+ * Legacy input sanitizer — trims and HTML-encodes.
+ * Kept for backwards compatibility with older pages.
+ * For new code, prefer sanitize_db_input() (storage) + e() (output).
+ */
+if (!function_exists('sanitize_input')) {
+    function sanitize_input($data) {
+        if (!is_string($data)) return $data;
+        $data = trim($data);
+        $data = stripslashes($data);
+        $data = htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
+        return $data;
+    }
+}
+
+function sanitize_db_input($data) {
+    if (!is_string($data)) return $data;
     $data = trim($data);
     $data = stripslashes($data);
-    $data = htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
     return $data;
 }
 
+/**
+ * Escape a value for safe HTML OUTPUT.
+ * Use this when echoing DB values in views.
+ */
+function e($value) {
+    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+}
 /**
  * ============================================
  * IDOR PROTECTION HELPERS

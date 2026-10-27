@@ -1,19 +1,29 @@
 <?php
 require_once '../config/config.php';
 require_admin();
+
 $page_title = "Stores/Branches";
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
     csrf_require();
     try {
         if ($_POST['action'] == 'add') {
             $store_code = 'STR' . rand(100, 999);
             $store_name = sanitize_input($_POST['store_name']);
-            $location = sanitize_input($_POST['location']);
-            $phone = sanitize_input($_POST['phone']);
-            $email = sanitize_input($_POST['email']);
-            $stmt = $conn->prepare("INSERT INTO stores (store_code, store_name, location, phone, email) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$store_code, $store_name, $location, $phone, $email]);
-            log_activity($_SESSION['user_id'], 'STORE_CREATED', "Created store: $store_name", $conn);
+            $location   = sanitize_input($_POST['location']);
+            $phone      = sanitize_input($_POST['phone']);
+            $email      = sanitize_input($_POST['email']);
+            $store_type = $_POST['store_type'] ?? 'sales'; // NEW: Capture store type
+
+            // Ensure valid store type
+            if (!in_array($store_type, ['sales', 'damages'])) {
+                $store_type = 'sales';
+            }
+
+            $stmt = $conn->prepare("INSERT INTO stores (store_code, store_name, location, phone, email, store_type) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$store_code, $store_name, $location, $phone, $email, $store_type]);
+            
+            log_activity($_SESSION['user_id'], 'STORE_CREATED', "Created $store_type store: $store_name", $conn);
             set_alert('success', 'Store added successfully!');
             header('Location: stores.php');
             exit();
@@ -22,25 +32,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
         set_alert('danger', 'Error: ' . $e->getMessage());
     }
 }
+
 $stmt = $conn->prepare("SELECT * FROM stores WHERE status = 'active' ORDER BY store_name");
 $stmt->execute();
 $stores = $stmt->fetchAll();
 ?>
 <?php include '../includes/header.php'; ?>
 <?php include '../includes/admin_sidebar.php'; ?>
+
 <div class="main-content">
     <div class="top-navbar">
          <button class="btn btn-link d-md-none sidebar-toggle">
-                    <i class="fas fa-bars"></i>
-                </button>
-                
-        <h5 class="mb-0"><i class="fas fa-store me-2"></i>Stores/Branches</h5></div>
+            <i class="fas fa-bars"></i>
+        </button>
+        <h5 class="mb-0"><i class="fas fa-store me-2"></i>Stores/Branches</h5>
+    </div>
+    
     <div class="content-area">
         <?php $alert = get_alert(); if ($alert): ?>
             <div class="alert alert-<?php echo $alert['type']; ?> alert-dismissible fade show">
                 <?php echo $alert['message']; ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         <?php endif; ?>
+        
         <div class="card">
             <div class="card-header d-flex justify-content-between">
                 <span><i class="fas fa-list me-2"></i>All Stores</span>
@@ -51,16 +65,33 @@ $stores = $stmt->fetchAll();
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table datatable table-hover">
-                        <thead><tr><th>Code</th><th>Store Name</th><th>Location</th><th>Phone</th><th>Email</th><th>Status</th></tr></thead>
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Store Name</th>
+                                <th>Type</th>
+                                <th>Location</th>
+                                <th>Phone</th>
+                                <th>Email</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
                         <tbody>
                             <?php foreach ($stores as $store): ?>
                             <tr>
-                                <td><?php echo $store['store_code']; ?></td>
-                                <td><?php echo $store['store_name']; ?></td>
-                                <td><?php echo $store['location']; ?></td>
-                                <td><?php echo $store['phone']; ?></td>
-                                <td><?php echo $store['email']; ?></td>
-                                <td><span class="badge badge-success">Active</span></td>
+                                <td><?php echo htmlspecialchars($store['store_code']); ?></td>
+                                <td><?php echo htmlspecialchars($store['store_name']); ?></td>
+                                <td>
+                                    <?php if (($store['store_type'] ?? 'sales') === 'damages'): ?>
+                                        <span class="badge bg-danger">Damages</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-primary">Sales</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?php echo htmlspecialchars($store['location'] ?? ''); ?></td>
+                                <td><?php echo htmlspecialchars($store['phone'] ?? ''); ?></td>
+                                <td><?php echo htmlspecialchars($store['email'] ?? ''); ?></td>
+                                <td><span class="badge bg-success">Active</span></td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -70,6 +101,8 @@ $stores = $stmt->fetchAll();
         </div>
     </div>
 </div>
+
+<!-- Add Store Modal -->
 <div class="modal fade" id="addModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -78,11 +111,35 @@ $stores = $stmt->fetchAll();
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST">
+                <?php echo csrf_field(); ?>
                 <div class="modal-body">
-                    <div class="mb-3"><label class="form-label">Store Name *</label><input type="text" name="store_name" class="form-control" required></div>
-                    <div class="mb-3"><label class="form-label">Location</label><input type="text" name="location" class="form-control"></div>
-                    <div class="mb-3"><label class="form-label">Phone</label><input type="text" name="phone" class="form-control"></div>
-                    <div class="mb-3"><label class="form-label">Email</label><input type="email" name="email" class="form-control"></div>
+                    <div class="mb-3">
+                        <label class="form-label">Store Name *</label>
+                        <input type="text" name="store_name" class="form-control" required>
+                    </div>
+                    
+                    <!-- NEW: Store Type Dropdown -->
+                    <div class="mb-3">
+                        <label class="form-label">Store Type *</label>
+                        <select name="store_type" class="form-select" required>
+                            <option value="sales">Sales Store (Normal POS Operations)</option>
+                            <option value="damages">Damages/Expiry Store (Quarantine)</option>
+                        </select>
+                        <small class="text-muted">Damages stores are hidden from POS and used to write off expired items.</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Location</label>
+                        <input type="text" name="location" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Phone</label>
+                        <input type="text" name="phone" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" name="email" class="form-control">
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -92,4 +149,5 @@ $stores = $stmt->fetchAll();
         </div>
     </div>
 </div>
+
 <?php include '../includes/footer.php'; ?>
