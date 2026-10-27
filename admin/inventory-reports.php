@@ -327,6 +327,15 @@ switch ($report_type) {
         ];
         break;
 }
+
+$report_titles = [
+    'stock_levels' => 'Stock Levels Report',
+    'inventory_value' => 'Inventory Value Report',
+    'batch_tracking' => 'Batch Tracking Report',
+    'stock_transfers' => 'Stock Transfers Report',
+    'expiry_tracking' => 'Expiry Tracking Report',
+    'store_comparison' => 'Store Comparison Report'
+];
 ?>
 
 <?php include '../includes/header.php'; ?>
@@ -753,17 +762,7 @@ switch ($report_type) {
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>
                     <i class="fas fa-table me-2"></i>
-                    <?php 
-                    $report_titles = [
-                        'stock_levels' => 'Stock Levels Report',
-                        'inventory_value' => 'Inventory Value Report',
-                        'batch_tracking' => 'Batch Tracking Report',
-                        'stock_transfers' => 'Stock Transfers Report',
-                        'expiry_tracking' => 'Expiry Tracking Report',
-                        'store_comparison' => 'Store Comparison Report'
-                    ];
-                    echo $report_titles[$report_type];
-                    ?>
+                    <?php echo $report_titles[$report_type]; ?>
                 </span>
             </div>
             <div class="card-body">
@@ -1074,6 +1073,15 @@ switch ($report_type) {
 
 <?php include '../includes/footer.php'; ?>
 
+<!-- DataTables Buttons CSS & JS -->
+<link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.dataTables.min.css">
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
+
 <script>
 function toggleDateFilters() {
     const reportType = document.querySelector('select[name="report"]').value;
@@ -1081,17 +1089,6 @@ function toggleDateFilters() {
     
     document.getElementById('start-date-field').style.display = needsDate ? '' : 'none';
     document.getElementById('end-date-field').style.display = needsDate ? '' : 'none';
-}
-
-function exportReport(format) {
-    const params = new URLSearchParams(window.location.search);
-    params.append('export', format);
-    window.open('export_inventory_report.php?' + params.toString(), '_blank');
-}
-
-// Print functionality
-function printReport() {
-    window.print();
 }
 
 // Print styles
@@ -1108,52 +1105,53 @@ style.innerHTML = `
 `;
 document.head.appendChild(style);
 
-// Initialize DataTables with export buttons
+// Initialize DataTables safely
 jQuery(document).ready(function($) {
-    if ($('.export-table').length) {
-        $('.export-table').DataTable({
-            dom: 'Bfrtip',
-            buttons: [
-                {
-                    extend: 'excel',
-                    text: '<i class="fas fa-file-excel"></i> Excel',
-                    className: 'btn btn-success btn-sm',
-                    title: '<?php echo $report_titles[$report_type]; ?> - <?php echo date("d M Y"); ?>',
-                    exportOptions: { columns: ':visible' }
-                },
-                {
-                    extend: 'pdf',
-                    text: '<i class="fas fa-file-pdf"></i> PDF',
-                    className: 'btn btn-danger btn-sm',
-                    title: '<?php echo $report_titles[$report_type]; ?>',
-                    orientation: 'landscape',
-                    exportOptions: { columns: ':visible' }
-                },
-                {
-                    extend: 'csv',
-                    text: '<i class="fas fa-file-csv"></i> CSV',
-                    className: 'btn btn-info btn-sm',
-                    exportOptions: { columns: ':visible' }
-                },
-                {
-                    extend: 'print',
-                    text: '<i class="fas fa-print"></i> Print',
-                    className: 'btn btn-secondary btn-sm',
-                    exportOptions: { columns: ':visible' }
+    setTimeout(function() {
+        if ($('.export-table').length) {
+            
+            // Destroy any existing init to prevent conflicts
+            $('.export-table').each(function() {
+                if ($.fn.DataTable.isDataTable(this)) {
+                    $(this).DataTable().destroy();
                 }
-            ],
-            pageLength: 25,
-            order: []
-        });
-    }
+            });
+
+            $('.export-table').DataTable({
+                dom: 'Bfrtip',
+                buttons: [
+                    {
+                        extend: 'excel',
+                        text: '<i class="fas fa-file-excel"></i> Excel',
+                        className: 'btn btn-success btn-sm',
+                        title: '<?php echo addslashes($report_titles[$report_type]); ?> - <?php echo date("d M Y"); ?>',
+                        exportOptions: { columns: ':visible' }
+                    },
+                    {
+                        extend: 'pdf',
+                        text: '<i class="fas fa-file-pdf"></i> PDF',
+                        className: 'btn btn-danger btn-sm',
+                        title: '<?php echo addslashes($report_titles[$report_type]); ?>',
+                        orientation: 'landscape',
+                        exportOptions: { columns: ':visible' }
+                    },
+                    {
+                        extend: 'csv',
+                        text: '<i class="fas fa-file-csv"></i> CSV',
+                        className: 'btn btn-info btn-sm',
+                        exportOptions: { columns: ':visible' }
+                    },
+                    {
+                        extend: 'print',
+                        text: '<i class="fas fa-print"></i> Print',
+                        className: 'btn btn-secondary btn-sm',
+                        exportOptions: { columns: ':visible' }
+                    }
+                ],
+                pageLength: 25,
+                order: []
+            });
+        }
+    }, 300);
 });
 </script>
-
-<!-- DataTables Buttons CSS & JS -->
-<link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.dataTables.min.css">
-<script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"></script>
-<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
-<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>

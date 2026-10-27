@@ -137,12 +137,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             --cyber-purple: #6B46C1;
             --cyber-purple-dark: #553C9A;
             --cyber-orange: #ED8936;
-            --cyber-green: #48BB78;
             --cyber-red: #E53E3E;
             --cyber-dark: #1A202C;
             --cyber-gray: #2D3748;
-            --cyber-gray-lighter: #718096;
-            --cyber-border: #E2E8F0;
+            --cyber-gray-lighter: #4A5568;
         }
         
         * {
@@ -153,27 +151,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         html, body {
             width: 100%;
-            min-height: 100vh;
+            height: 100%;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            overflow: hidden;
         }
         
         body {
-            background-image: url('assets/images/login-bg.png');
+            background-image: url('assets/images/login_im.png');
             background-size: cover;
             background-position: center center;
             background-repeat: no-repeat;
-            background-attachment: fixed;
             
             display: flex;
             align-items: center;
             justify-content: center;
             
-            padding: 20px;
+            padding: 10px;
             position: relative;
-            overflow-x: hidden;
         }
         
-        /* Vignette overlay */
+        /* Vignette overlay - keeps the edges slightly dark so the card pops */
         body::before {
             content: '';
             position: fixed;
@@ -189,27 +186,33 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
         
         /* ============================================
-           REGISTRATION CARD - GLASS
+           REGISTRATION CARD - CLEAR GLASS
            ============================================ */
         .register-card {
             position: relative;
             z-index: 1;
             
-            background: rgba(255, 255, 255, 0.75);
-            backdrop-filter: blur(30px) saturate(180%);
-            -webkit-backdrop-filter: blur(30px) saturate(180%);
+            /* Almost entirely transparent, just a faint white tint */
+            background: rgba(255, 255, 255, 0.10); 
             
-            border-radius: 22px;
-            padding: 32px 36px;
+            /* Removed the heavy blur so the background person is clearly visible */
+            backdrop-filter: blur(2px) saturate(120%);
+            -webkit-backdrop-filter: blur(2px) saturate(120%);
+            
+            border-radius: 14px;
+            padding: 20px 24px; 
             width: 100%;
-            max-width: 780px;
+            max-width: 820px;
             
-            border: 1px solid rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.4);
             box-shadow: 
-                0 25px 70px rgba(0, 0, 0, 0.4),
-                inset 0 1px 0 rgba(255, 255, 255, 0.6);
+                0 20px 40px rgba(0, 0, 0, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3);
             
-            animation: scaleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            
+            /* Slight shadow for text readability against the photo */
+            text-shadow: 0 1px 3px rgba(255,255,255,0.8);
         }
         
         @keyframes scaleIn {
@@ -223,133 +226,90 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .register-header {
             display: flex;
             align-items: center;
-            gap: 16px;
-            margin-bottom: 24px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+            gap: 12px;
+            margin-bottom: 14px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
         }
         
         .register-icon {
-            width: 54px;
-            height: 54px;
+            width: 40px;
+            height: 40px;
             background: linear-gradient(135deg, var(--cyber-purple), var(--cyber-purple-dark));
-            border-radius: 15px;
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
             color: #fff;
-            font-size: 1.4rem;
+            font-size: 1.1rem;
             flex-shrink: 0;
-            box-shadow: 0 8px 22px rgba(107, 70, 193, 0.4);
+            box-shadow: 0 4px 10px rgba(107, 70, 193, 0.4);
+            text-shadow: none;
         }
         
         .register-header-text h1 {
-            font-size: 1.25rem;
+            font-size: 1.05rem;
             font-weight: 800;
             color: var(--cyber-dark);
             margin: 0;
-            letter-spacing: 0.3px;
         }
         
         .register-header-text p {
-            font-size: 0.82rem;
-            color: var(--cyber-gray-lighter);
-            margin: 3px 0 0 0;
+            font-size: 0.75rem;
+            color: var(--cyber-dark);
+            margin: 2px 0 0 0;
+            font-weight: 600;
         }
         
         /* Error Alert */
         .alert-error {
-            background: rgba(229, 62, 62, 0.12);
-            border: 1px solid rgba(229, 62, 62, 0.3);
-            border-left: 3px solid var(--cyber-red);
+            background: rgba(229, 62, 62, 0.2);
+            border: 1px solid rgba(229, 62, 62, 0.5);
             color: #C53030;
-            padding: 12px 14px;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 20px;
-            animation: shake 0.4s ease;
-        }
-        
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-6px); }
-            75% { transform: translateX(6px); }
-        }
-        
-        .alert-error i {
-            font-size: 1rem;
-            flex-shrink: 0;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            text-shadow: none;
         }
         
         /* ============================================
-           SECTION HEADERS
+           TWO-COLUMN LAYOUT
            ============================================ */
-        .form-section {
-            margin-bottom: 20px;
+        .form-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
         }
         
         .section-title {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 0.72rem;
+            font-size: 0.65rem;
             font-weight: 800;
             text-transform: uppercase;
             letter-spacing: 1px;
-            color: var(--cyber-purple);
-            margin-bottom: 14px;
-        }
-        
-        .section-title::after {
-            content: '';
-            flex: 1;
-            height: 1px;
-            background: linear-gradient(90deg, rgba(107, 70, 193, 0.2), transparent);
-        }
-        
-        .section-title i {
-            font-size: 0.85rem;
-            color: var(--cyber-orange);
-        }
-        
-        /* ============================================
-           FORM
-           ============================================ */
-        .form-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 14px;
-        }
-        
-        .form-grid.full-width {
-            grid-template-columns: 1fr;
+            color: #fff; /* White text with a dark drop shadow for contrast */
+            text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+            margin-bottom: 10px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.4);
         }
         
         .form-group {
-            margin-bottom: 0;
-        }
-        
-        .form-group.full-width {
-            grid-column: 1 / -1;
+            margin-bottom: 10px;
         }
         
         .form-label {
             display: block;
-            font-size: 0.7rem;
-            font-weight: 700;
+            font-size: 0.65rem;
+            font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--cyber-gray);
-            margin-bottom: 6px;
+            color: #1A202C;
+            margin-bottom: 4px;
         }
         
         .form-label .required {
             color: var(--cyber-red);
-            margin-left: 2px;
         }
         
         .input-wrapper {
@@ -360,113 +320,59 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         .input-wrapper .input-icon {
             position: absolute;
-            left: 14px;
-            color: #A0AEC0;
-            font-size: 0.9rem;
+            left: 10px;
+            color: var(--cyber-gray);
+            font-size: 0.8rem;
             pointer-events: none;
-            transition: color 0.2s ease;
+            z-index: 2;
         }
         
+        /* Inputs are slightly less transparent than the card so you can read them */
         .input-wrapper input,
         .input-wrapper textarea {
             width: 100%;
-            padding: 11px 14px 11px 40px;
-            border: 1.5px solid rgba(255, 255, 255, 0.6);
-            border-radius: 10px;
-            font-size: 0.88rem;
-            font-weight: 500;
+            padding: 8px 10px 8px 32px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 6px;
+            font-size: 0.82rem;
+            font-weight: 600;
             color: var(--cyber-dark);
-            
-            background: rgba(255, 255, 255, 0.55);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            
+            background: rgba(255, 255, 255, 0.35); /* 35% opaque so text is readable */
             transition: all 0.2s ease;
-            font-family: inherit;
+            text-shadow: none; /* Crisp text */
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+        }
+        
+        .input-wrapper input::placeholder {
+            color: rgba(45, 55, 72, 0.6);
+            font-weight: 500;
         }
         
         .input-wrapper textarea {
-            resize: vertical;
-            min-height: 60px;
-            padding-top: 10px;
-            padding-bottom: 10px;
-        }
-        
-        .input-wrapper input::placeholder,
-        .input-wrapper textarea::placeholder {
-            color: #A0AEC0;
-            font-weight: 400;
+            resize: none;
+            height: 38px;
+            padding-top: 8px;
         }
         
         .input-wrapper input:focus,
         .input-wrapper textarea:focus {
             outline: none;
             border-color: var(--cyber-purple);
-            background: rgba(255, 255, 255, 0.9);
-            box-shadow: 0 0 0 3px rgba(107, 70, 193, 0.15);
-        }
-        
-        .input-wrapper input:focus ~ .input-icon,
-        .input-wrapper:focus-within .input-icon {
-            color: var(--cyber-purple);
-        }
-        
-        .toggle-password {
-            position: absolute;
-            right: 14px;
-            background: none;
-            border: none;
-            color: #A0AEC0;
-            cursor: pointer;
-            padding: 4px;
-            border-radius: 4px;
-            transition: color 0.2s ease;
-            font-size: 0.9rem;
-        }
-        
-        .toggle-password:hover {
-            color: var(--cyber-purple);
-        }
-        
-        .input-hint {
-            display: block;
-            margin-top: 4px;
-            font-size: 0.7rem;
-            color: #A0AEC0;
+            background: rgba(255, 255, 255, 0.8); /* Solid whiter focus */
+            box-shadow: 0 0 0 3px rgba(107, 70, 193, 0.3);
         }
         
         /* ============================================
-           PASSWORD STRENGTH
-           ============================================ */
-        .password-strength {
-            margin-top: 6px;
-            height: 4px;
-            background: rgba(226, 232, 240, 0.6);
-            border-radius: 2px;
-            overflow: hidden;
-        }
-        
-        .password-strength-bar {
-            height: 100%;
-            width: 0%;
-            transition: all 0.3s ease;
-            border-radius: 2px;
-        }
-        
-        .strength-weak { background: #E53E3E; width: 33%; }
-        .strength-medium { background: #ED8936; width: 66%; }
-        .strength-strong { background: #48BB78; width: 100%; }
-        
-        /* ============================================
-           BUTTON ROW
+           BUTTONS
            ============================================ */
         .btn-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 12px;
-            margin-top: 24px;
-            padding-top: 20px;
-            border-top: 1px solid rgba(226, 232, 240, 0.6);
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.3);
         }
         
         .btn-primary-cyber,
@@ -474,122 +380,76 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            padding: 13px 20px;
-            border-radius: 10px;
-            font-size: 0.85rem;
+            gap: 6px;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 0.78rem;
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.6px;
             cursor: pointer;
-            transition: all 0.25s ease;
+            transition: all 0.2s ease;
             border: none;
             text-decoration: none;
-            white-space: nowrap;
-            font-family: inherit;
+            text-shadow: none;
         }
         
         .btn-primary-cyber {
-            background: linear-gradient(135deg, var(--cyber-purple) 0%, var(--cyber-purple-dark) 100%);
+            background: var(--cyber-purple);
             color: #fff;
-            box-shadow: 0 6px 18px rgba(107, 70, 193, 0.35);
+            box-shadow: 0 4px 10px rgba(107, 70, 193, 0.4);
         }
         
         .btn-primary-cyber:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(107, 70, 193, 0.5);
-            background: linear-gradient(135deg, var(--cyber-purple-dark) 0%, var(--cyber-purple) 100%);
-            color: #fff;
-        }
-        
-        .btn-primary-cyber:disabled {
-            opacity: 0.7;
-            cursor: not-allowed;
+            background: var(--cyber-purple-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 15px rgba(107, 70, 193, 0.5);
         }
         
         .btn-secondary-cyber {
-            background: rgba(255, 255, 255, 0.6);
-            color: var(--cyber-gray);
-            border: 1.5px solid rgba(160, 174, 192, 0.4);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.3);
+            color: var(--cyber-dark);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
         }
         
         .btn-secondary-cyber:hover {
-            background: rgba(255, 255, 255, 0.9);
-            color: var(--cyber-dark);
-            border-color: var(--cyber-gray-lighter);
-            transform: translateY(-2px);
+            background: rgba(255, 255, 255, 0.6);
         }
         
-        /* ============================================
-           FOOTER
-           ============================================ */
+        /* Footer */
         .register-footer {
             text-align: center;
-            margin-top: 18px;
-            padding-top: 14px;
-            font-size: 0.72rem;
-            color: #A0AEC0;
-            letter-spacing: 0.3px;
+            margin-top: 12px;
+            font-size: 0.65rem;
+            color: var(--cyber-dark);
+            font-weight: 600;
         }
         
         /* ============================================
-           RESPONSIVE
+           RESPONSIVE (Mobile)
            ============================================ */
         @media (max-width: 767.98px) {
             body {
-                background-attachment: scroll;
-                padding: 12px;
+                overflow-y: auto;
+                height: auto;
+                min-height: 100vh;
+                padding: 15px;
+            }
+            
+            .form-layout {
+                grid-template-columns: 1fr;
+                gap: 10px;
             }
             
             .register-card {
-                padding: 24px 20px;
-                border-radius: 18px;
-                max-width: 100%;
-            }
-            
-            .register-header {
-                gap: 12px;
-                margin-bottom: 20px;
-                padding-bottom: 16px;
-            }
-            
-            .register-icon {
-                width: 46px;
-                height: 46px;
-                font-size: 1.15rem;
-            }
-            
-            .register-header-text h1 {
-                font-size: 1.05rem;
-            }
-            
-            .register-header-text p {
-                font-size: 0.75rem;
-            }
-            
-            /* Stack the form grid on mobile */
-            .form-grid {
-                grid-template-columns: 1fr;
-                gap: 12px;
+                padding: 15px;
+                margin: 10px 0;
+                background: rgba(255, 255, 255, 0.25); /* Slightly more solid on mobile */
             }
             
             .btn-row {
                 grid-template-columns: 1fr;
-            }
-        }
-        
-        @media (max-width: 360px) {
-            .register-card {
-                padding: 20px 16px;
-            }
-        }
-        
-        @media (prefers-reduced-motion: reduce) {
-            * {
-                animation: none !important;
-                transition: none !important;
             }
         }
     </style>
@@ -604,16 +464,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 <i class="fas fa-building"></i>
             </div>
             <div class="register-header-text">
-                <h1>Create Your Organization</h1>
-                <p>Get started with <?php echo APP_NAME; ?> in under a minute</p>
+                <h1>Create Organization</h1>
+                <p>Get started with <?php echo APP_NAME; ?></p>
             </div>
         </div>
         
         <!-- Error Alert -->
         <?php if (!empty($error_message)): ?>
         <div class="alert-error">
-            <i class="fas fa-exclamation-circle"></i>
-            <span><?php echo htmlspecialchars($error_message); ?></span>
+            <i class="fas fa-exclamation-circle me-1"></i> <?php echo htmlspecialchars($error_message); ?>
         </div>
         <?php endif; ?>
         
@@ -621,228 +480,103 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         <form method="POST" id="registerForm">
             <?php echo csrf_field(); ?>
             
-            <!-- Section: Organization Info -->
-            <div class="form-section">
-                <div class="section-title">
-                    <i class="fas fa-building"></i>
-                    Organization Information
-                </div>
+            <div class="form-layout">
                 
-                <div class="form-grid">
-                    <div class="form-group full-width">
-                        <label class="form-label" for="org_name">
-                            Organization Name <span class="required">*</span>
-                        </label>
+                <!-- LEFT COLUMN -->
+                <div>
+                    <div class="section-title">Organization Details</div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="org_name">Org Name <span class="required">*</span></label>
                         <div class="input-wrapper">
                             <i class="fas fa-briefcase input-icon"></i>
-                            <input type="text" 
-                                   id="org_name"
-                                   name="org_name" 
-                                   placeholder="e.g. Cyber Plaza Retail Ltd"
-                                   value="<?php echo htmlspecialchars($_POST['org_name'] ?? ''); ?>"
-                                   required 
-                                   autofocus>
+                            <input type="text" id="org_name" name="org_name" placeholder="e.g. Cyber Plaza Ltd" value="<?php echo htmlspecialchars($_POST['org_name'] ?? ''); ?>" required autofocus>
                         </div>
                     </div>
                     
                     <div class="form-group">
-                        <label class="form-label" for="contact_person">
-                            Contact Person <span class="required">*</span>
-                        </label>
+                        <label class="form-label" for="contact_person">Contact Person <span class="required">*</span></label>
                         <div class="input-wrapper">
                             <i class="fas fa-user-tie input-icon"></i>
-                            <input type="text" 
-                                   id="contact_person"
-                                   name="contact_person" 
-                                   placeholder="Full name"
-                                   value="<?php echo htmlspecialchars($_POST['contact_person'] ?? ''); ?>"
-                                   required>
+                            <input type="text" id="contact_person" name="contact_person" placeholder="Full name" value="<?php echo htmlspecialchars($_POST['contact_person'] ?? ''); ?>" required>
                         </div>
                     </div>
                     
                     <div class="form-group">
-                        <label class="form-label" for="phone">
-                            Phone <span class="required">*</span>
-                        </label>
+                        <label class="form-label" for="phone">Phone <span class="required">*</span></label>
                         <div class="input-wrapper">
                             <i class="fas fa-phone input-icon"></i>
-                            <input type="tel" 
-                                   id="phone"
-                                   name="phone" 
-                                   placeholder="+256 XXX XXX XXX"
-                                   value="<?php echo htmlspecialchars($_POST['phone'] ?? ''); ?>"
-                                   required>
+                            <input type="tel" id="phone" name="phone" placeholder="+256 XXX XXX XXX" value="<?php echo htmlspecialchars($_POST['phone'] ?? ''); ?>" required>
                         </div>
                     </div>
                     
-                    <div class="form-group full-width">
-                        <label class="form-label" for="email">
-                            Email Address <span class="required">*</span>
-                        </label>
+                    <div class="form-group">
+                        <label class="form-label" for="email">Email Address <span class="required">*</span></label>
                         <div class="input-wrapper">
                             <i class="fas fa-envelope input-icon"></i>
-                            <input type="email" 
-                                   id="email"
-                                   name="email" 
-                                   placeholder="you@company.com"
-                                   value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>"
-                                   required>
+                            <input type="email" id="email" name="email" placeholder="you@company.com" value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>" required>
                         </div>
                     </div>
                     
-                    <div class="form-group full-width">
+                    <div class="form-group">
                         <label class="form-label" for="address">Address</label>
                         <div class="input-wrapper">
-                            <i class="fas fa-map-marker-alt input-icon" style="top: 12px;"></i>
-                            <textarea id="address"
-                                      name="address" 
-                                      placeholder="Business address (optional)"
-                                      rows="2"><?php echo htmlspecialchars($_POST['address'] ?? ''); ?></textarea>
+                            <i class="fas fa-map-marker-alt input-icon" style="top:8px;"></i>
+                            <textarea id="address" name="address" placeholder="Business address (optional)"><?php echo htmlspecialchars($_POST['address'] ?? ''); ?></textarea>
                         </div>
                     </div>
-                </div>
-            </div>
-            
-            <!-- Section: Account Info -->
-            <div class="form-section">
-                <div class="section-title">
-                    <i class="fas fa-user-shield"></i>
-                    Admin Account
                 </div>
                 
-                <div class="form-grid">
+                <!-- RIGHT COLUMN -->
+                <div>
+                    <div class="section-title">Admin Account</div>
+                    
                     <div class="form-group">
-                        <label class="form-label" for="username">
-                            Username <span class="required">*</span>
-                        </label>
+                        <label class="form-label" for="username">Username <span class="required">*</span></label>
                         <div class="input-wrapper">
                             <i class="fas fa-user input-icon"></i>
-                            <input type="text" 
-                                   id="username"
-                                   name="username" 
-                                   placeholder="Choose username"
-                                   value="<?php echo htmlspecialchars($_POST['username'] ?? ''); ?>"
-                                   minlength="4"
-                                   pattern="[a-zA-Z0-9_]+"
-                                   required>
+                            <input type="text" id="username" name="username" placeholder="Choose username" value="<?php echo htmlspecialchars($_POST['username'] ?? ''); ?>" minlength="4" pattern="[a-zA-Z0-9_]+" required>
                         </div>
-                        <small class="input-hint">4+ chars, letters/numbers/underscore</small>
                     </div>
                     
                     <div class="form-group">
-                        <label class="form-label" for="password">
-                            Password <span class="required">*</span>
-                        </label>
+                        <label class="form-label" for="password">Password <span class="required">*</span></label>
                         <div class="input-wrapper">
                             <i class="fas fa-lock input-icon"></i>
-                            <input type="password" 
-                                   id="password"
-                                   name="password" 
-                                   placeholder="Choose password"
-                                   minlength="6"
-                                   required>
-                            <button type="button" class="toggle-password" data-target="password" aria-label="Toggle">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </div>
-                        <div class="password-strength">
-                            <div class="password-strength-bar" id="strengthBar"></div>
+                            <input type="password" id="password" name="password" placeholder="Choose password" minlength="6" required>
                         </div>
                     </div>
                     
-                    <div class="form-group full-width">
-                        <label class="form-label" for="confirm_password">
-                            Confirm Password <span class="required">*</span>
-                        </label>
+                    <div class="form-group">
+                        <label class="form-label" for="confirm_password">Confirm Password <span class="required">*</span></label>
                         <div class="input-wrapper">
                             <i class="fas fa-lock input-icon"></i>
-                            <input type="password" 
-                                   id="confirm_password"
-                                   name="confirm_password" 
-                                   placeholder="Re-enter password"
-                                   minlength="6"
-                                   required>
-                            <button type="button" class="toggle-password" data-target="confirm_password" aria-label="Toggle">
-                                <i class="fas fa-eye"></i>
-                            </button>
+                            <input type="password" id="confirm_password" name="confirm_password" placeholder="Re-enter password" minlength="6" required>
                         </div>
                     </div>
                 </div>
+                
             </div>
             
             <!-- Buttons -->
             <div class="btn-row">
                 <a href="index.php" class="btn-secondary-cyber">
-                    <i class="fas fa-arrow-left"></i>
-                    <span>Back to Login</span>
+                    <i class="fas fa-arrow-left"></i> <span>Back to Login</span>
                 </a>
                 
                 <button type="submit" class="btn-primary-cyber" id="submitBtn">
-                    <i class="fas fa-user-plus"></i>
-                    <span>Create Account</span>
+                    <i class="fas fa-user-plus"></i> <span>Create Account</span>
                 </button>
             </div>
         </form>
         
         <!-- Footer -->
         <div class="register-footer">
-            <?php echo date('Y'); ?> &copy; <?php echo APP_NAME; ?> &middot; Your data is safe &amp; secure
+            <?php echo date('Y'); ?> &copy; <?php echo APP_NAME; ?>
         </div>
     </div>
     
     <script>
-        // ============================================
-        // PASSWORD TOGGLE
-        // ============================================
-        document.querySelectorAll('.toggle-password').forEach(function(button) {
-            button.addEventListener('click', function() {
-                const targetId = this.getAttribute('data-target');
-                const input = document.getElementById(targetId);
-                if (!input) return;
-                
-                const type = input.type === 'password' ? 'text' : 'password';
-                input.type = type;
-                
-                const icon = this.querySelector('i');
-                icon.className = type === 'password' ? 'fas fa-eye' : 'fas fa-eye-slash';
-            });
-        });
-        
-        // ============================================
-        // PASSWORD STRENGTH METER
-        // ============================================
-        const passwordInput = document.getElementById('password');
-        const strengthBar = document.getElementById('strengthBar');
-        
-        if (passwordInput && strengthBar) {
-            passwordInput.addEventListener('input', function() {
-                const password = this.value;
-                let strength = 0;
-                
-                if (password.length >= 6) strength++;
-                if (password.length >= 10) strength++;
-                if (/[A-Z]/.test(password)) strength++;
-                if (/[0-9]/.test(password)) strength++;
-                if (/[^A-Za-z0-9]/.test(password)) strength++;
-                
-                // Reset classes
-                strengthBar.className = 'password-strength-bar';
-                
-                if (password.length === 0) {
-                    strengthBar.style.width = '0%';
-                } else if (strength <= 2) {
-                    strengthBar.classList.add('strength-weak');
-                } else if (strength <= 3) {
-                    strengthBar.classList.add('strength-medium');
-                } else {
-                    strengthBar.classList.add('strength-strong');
-                }
-            });
-        }
-        
-        // ============================================
-        // FORM VALIDATION
-        // ============================================
         const form = document.getElementById('registerForm');
         const submitBtn = document.getElementById('submitBtn');
         
@@ -864,7 +598,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 }
                 
                 submitBtn.disabled = true;
-                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Creating Account...</span>';
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Creating...</span>';
             });
         }
     </script>

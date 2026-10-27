@@ -157,62 +157,76 @@ $suppliers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         <div class="card">
             <div class="card-header d-flex justify-content-between">
-                <span><i class="fas fa-list me-2"></i>All Suppliers</span>
+                <span><i class="fas fa-list me-2"></i>All Suppliers (<?php echo count($suppliers); ?>)</span>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">
                     <i class="fas fa-plus me-1"></i>Add Supplier
                 </button>
             </div>
             <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table datatable table-hover">
-                        <thead>
-                            <tr>
-                                <th>Code</th>
-                                <th>Name</th>
-                                <th>Contact Person</th>
-                                <th>Email</th>
-                                <th>Phone</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($suppliers as $sup): ?>
-                            <tr>
-                                <td><?php echo htmlspecialchars($sup['supplier_code']); ?></td>
-                                <td><?php echo htmlspecialchars($sup['supplier_name']); ?></td>
-                                <td><?php echo htmlspecialchars($sup['contact_person'] ?? ''); ?></td>
-                                <td><?php echo htmlspecialchars($sup['email'] ?? ''); ?></td>
-                                <td><?php echo htmlspecialchars($sup['phone'] ?? ''); ?></td>
-                                <td>
-                                    <button type="button"
-                                            class="btn btn-sm btn-primary edit-btn"
-                                            data-id="<?php echo (int) $sup['supplier_id']; ?>"
-                                            data-code="<?php echo htmlspecialchars($sup['supplier_code']); ?>"
-                                            data-name="<?php echo htmlspecialchars($sup['supplier_name']); ?>"
-                                            data-contact="<?php echo htmlspecialchars($sup['contact_person'] ?? ''); ?>"
-                                            data-email="<?php echo htmlspecialchars($sup['email'] ?? ''); ?>"
-                                            data-phone="<?php echo htmlspecialchars($sup['phone'] ?? ''); ?>"
-                                            data-address="<?php echo htmlspecialchars($sup['address'] ?? ''); ?>"
-                                            data-status="<?php echo htmlspecialchars($sup['status'] ?? 'active'); ?>"
-                                            title="Edit Supplier">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-
-                                    <form method="POST" style="display:inline-block;"
-                                          onsubmit="return confirm('Deactivate this supplier?');">
-                                        <?php echo csrf_field(); ?>
-                                        <input type="hidden" name="supplier_id" value="<?php echo (int) $sup['supplier_id']; ?>">
-                                        <button type="submit" name="action" value="delete"
-                                                class="btn btn-sm btn-danger" title="Deactivate Supplier">
-                                            <i class="fas fa-trash"></i>
+                
+                <?php if (empty($suppliers)): ?>
+                    <!-- Empty State -->
+                    <div class="text-center py-5">
+                        <i class="fas fa-truck fa-4x text-muted mb-3" style="opacity:0.2;"></i>
+                        <h4 class="text-muted mb-2">No Suppliers Added Yet</h4>
+                        <p class="text-muted mb-4" style="font-size:0.9rem;">You haven't added any suppliers. Add one to start purchasing stock.</p>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">
+                            <i class="fas fa-plus me-1"></i>Add Your First Supplier
+                        </button>
+                    </div>
+                <?php else: ?>
+                    <!-- Suppliers Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="suppliersTable">
+                            <thead>
+                                <tr>
+                                    <th>Code</th>
+                                    <th>Name</th>
+                                    <th>Contact Person</th>
+                                    <th>Email</th>
+                                    <th>Phone</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($suppliers as $sup): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($sup['supplier_code']); ?></td>
+                                    <td><?php echo htmlspecialchars($sup['supplier_name']); ?></td>
+                                    <td><?php echo htmlspecialchars($sup['contact_person'] ?? ''); ?></td>
+                                    <td><?php echo htmlspecialchars($sup['email'] ?? ''); ?></td>
+                                    <td><?php echo htmlspecialchars($sup['phone'] ?? ''); ?></td>
+                                    <td>
+                                        <button type="button"
+                                                class="btn btn-sm btn-primary edit-btn"
+                                                data-id="<?php echo (int) $sup['supplier_id']; ?>"
+                                                data-code="<?php echo htmlspecialchars($sup['supplier_code']); ?>"
+                                                data-name="<?php echo htmlspecialchars($sup['supplier_name']); ?>"
+                                                data-contact="<?php echo htmlspecialchars($sup['contact_person'] ?? ''); ?>"
+                                                data-email="<?php echo htmlspecialchars($sup['email'] ?? ''); ?>"
+                                                data-phone="<?php echo htmlspecialchars($sup['phone'] ?? ''); ?>"
+                                                data-address="<?php echo htmlspecialchars($sup['address'] ?? ''); ?>"
+                                                data-status="<?php echo htmlspecialchars($sup['status'] ?? 'active'); ?>"
+                                                title="Edit Supplier">
+                                            <i class="fas fa-edit"></i>
                                         </button>
-                                    </form>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+
+                                        <form method="POST" style="display:inline-block;"
+                                              onsubmit="return confirm('Deactivate this supplier?');">
+                                            <?php echo csrf_field(); ?>
+                                            <input type="hidden" name="supplier_id" value="<?php echo (int) $sup['supplier_id']; ?>">
+                                            <button type="submit" name="action" value="delete"
+                                                    class="btn btn-sm btn-danger" title="Deactivate Supplier">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -324,6 +338,38 @@ $suppliers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 <script>
 jQuery(document).ready(function($) {
+    // ============================================
+    // SAFE DATATABLE INIT
+    // ============================================
+    setTimeout(function() {
+        var tableSelector = '#suppliersTable';
+        var $table = $(tableSelector);
+        
+        if ($table.length > 0) {
+            if (!$.fn.DataTable.isDataTable(tableSelector)) {
+                $table.DataTable({
+                    pageLength: 25,
+                    responsive: false,
+                    order: [],
+                    language: {
+                        search: "", searchPlaceholder: "Search suppliers...",
+                        lengthMenu: "Show _MENU_",
+                        info: "_START_–_END_ of _TOTAL_",
+                        infoEmpty: "No entries",
+                        infoFiltered: "(filtered from _MAX_)",
+                        paginate: {
+                            first: '<i class="fas fa-angle-double-left"></i>',
+                            last: '<i class="fas fa-angle-double-right"></i>',
+                            next: '<i class="fas fa-angle-right"></i>',
+                            previous: '<i class="fas fa-angle-left"></i>'
+                        }
+                    }
+                });
+            }
+        }
+    }, 200);
+
+    // Handle edit button click
     $(document).on('click', '.edit-btn', function() {
         const btn = $(this);
 

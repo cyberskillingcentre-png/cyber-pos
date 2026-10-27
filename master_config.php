@@ -58,7 +58,7 @@ if ($is_production) {
 // ============================================
 if (!defined('MASTER_DB_HOST')) define('MASTER_DB_HOST', 'localhost');
 if (!defined('MASTER_DB_USER')) define('MASTER_DB_USER', 'root');
-if (!defined('MASTER_DB_PASS')) define('MASTER_DB_PASS', 'waniaye@Tech1');
+if (!defined('MASTER_DB_PASS')) define('MASTER_DB_PASS', '');
 if (!defined('MASTER_DB_NAME')) define('MASTER_DB_NAME', 'pos_master');
 
 // ============================================

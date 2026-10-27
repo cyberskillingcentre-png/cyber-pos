@@ -82,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $batch_number = $item['batch_number'];
                     $expiry_date = !empty($item['expiry_date']) ? $item['expiry_date'] : null;
                     
-                    // Add to inventory
+                    // Add to inventory (Assuming status column defaults to 'good')
                     $stmt = $conn->prepare("INSERT INTO store_inventory (store_id, product_id, batch_number, quantity, expiry_date) VALUES (?, ?, ?, ?, ?)");
                     $stmt->execute([$store_id, $product_id, $batch_number, $quantity, $expiry_date]);
                     
@@ -166,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             
         } catch(Exception $e) {
-            if (isset($conn)) $conn->rollBack();
+            if (isset($conn) && $conn->inTransaction()) $conn->rollBack();
             set_alert('danger', 'Error: ' . $e->getMessage());
         }
     }
@@ -224,97 +224,111 @@ $stores = $stmt->fetchAll();
         
         <div class="card">
             <div class="card-header d-flex justify-content-between">
-                <span><i class="fas fa-list me-2"></i>Purchase Orders</span>
+                <span><i class="fas fa-list me-2"></i>Purchase Orders (<?php echo count($purchases); ?>)</span>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addPurchaseModal">
                     <i class="fas fa-plus me-1"></i>New Purchase Order
                 </button>
             </div>
             <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table datatable table-hover">
-                        <thead>
-                            <tr>
-                                <th>PO Number</th>
-                                <th>Date</th>
-                                <th>Supplier</th>
-                                <th>Total Amount</th>
-                                <th>Paid</th>
-                                <th>Balance</th>
-                                <th>Payment Status</th>
-                                <th>Order Status</th>
-                                <th>Created By</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($purchases as $purchase): 
-                                $balance = $purchase['total_amount'] - $purchase['paid_amount'];
-                            ?>
-                            <tr>
-                                <td><strong><?php echo $purchase['purchase_number']; ?></strong></td>
-                                <td><?php echo date('d/m/Y', strtotime($purchase['purchase_date'])); ?></td>
-                                <td><?php echo $purchase['supplier_name']; ?></td>
-                                <td>UGX <?php echo number_format($purchase['total_amount'], 2); ?></td>
-                                <td>UGX <?php echo number_format($purchase['paid_amount'], 2); ?></td>
-                                <td>UGX <?php echo number_format($balance, 2); ?></td>
-                                <td>
-                                    <?php if ($purchase['payment_status'] == 'paid'): ?>
-                                        <span class="badge bg-success">Paid</span>
-                                    <?php elseif ($purchase['payment_status'] == 'partial'): ?>
-                                        <span class="badge bg-warning">Partial</span>
-                                    <?php else: ?>
-                                        <span class="badge bg-danger">Unpaid</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($purchase['status'] == 'received'): ?>
-                                        <span class="badge bg-success">Received</span>
-                                    <?php elseif ($purchase['status'] == 'pending'): ?>
-                                        <span class="badge bg-warning">Pending</span>
-                                    <?php else: ?>
-                                        <span class="badge bg-secondary">Cancelled</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td><?php echo $purchase['created_by_name']; ?></td>
-                                <td>
-                                    <button class="btn btn-sm btn-info view-btn" 
-                                            data-id="<?php echo $purchase['purchase_id']; ?>"
-                                            title="View Details">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                    
-                                    <?php if ($balance > 0): ?>
-                                    <button class="btn btn-sm btn-warning make-payment-btn" 
-                                            data-id="<?php echo $purchase['purchase_id']; ?>"
-                                            data-balance="<?php echo $balance; ?>"
-                                            title="Make Payment">
-                                        <i class="fas fa-money-bill"></i>
-                                    </button>
-                                    <?php endif; ?>
-                                    
-                                    <?php if ($purchase['status'] == 'pending'): ?>
-                                    <button class="btn btn-sm btn-success receive-btn" 
-                                            data-id="<?php echo $purchase['purchase_id']; ?>"
-                                            title="Receive Stock">
-                                        <i class="fas fa-box"></i>
-                                    </button>
-                                    <form method="POST" style="display:inline;">
-                                        <?php echo csrf_field(); ?>
-                                        <input type="hidden" name="purchase_id" value="<?php echo $purchase['purchase_id']; ?>">
-                                        <input type="hidden" name="action" value="delete">
-                                        <button type="submit" class="btn btn-sm btn-danger" 
-                                                onclick="return confirm('Cancel this purchase order?');" 
-                                                title="Cancel">
-                                            <i class="fas fa-times"></i>
+                
+                <?php if (empty($purchases)): ?>
+                    <!-- Empty State -->
+                    <div class="text-center py-5">
+                        <i class="fas fa-shopping-cart fa-4x text-muted mb-3" style="opacity:0.2;"></i>
+                        <h4 class="text-muted mb-2">No Purchase Orders Found</h4>
+                        <p class="text-muted mb-4" style="font-size:0.9rem;">You haven't created any purchase orders yet. Order stock from your suppliers to get started.</p>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addPurchaseModal">
+                            <i class="fas fa-plus me-1"></i>Create Your First Purchase Order
+                        </button>
+                    </div>
+                <?php else: ?>
+                    <!-- Purchases Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="purchasesTable">
+                            <thead>
+                                <tr>
+                                    <th>PO Number</th>
+                                    <th>Date</th>
+                                    <th>Supplier</th>
+                                    <th>Total Amount</th>
+                                    <th>Paid</th>
+                                    <th>Balance</th>
+                                    <th>Payment Status</th>
+                                    <th>Order Status</th>
+                                    <th>Created By</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($purchases as $purchase): 
+                                    $balance = $purchase['total_amount'] - $purchase['paid_amount'];
+                                ?>
+                                <tr>
+                                    <td><strong><?php echo htmlspecialchars($purchase['purchase_number']); ?></strong></td>
+                                    <td><?php echo date('d/m/Y', strtotime($purchase['purchase_date'])); ?></td>
+                                    <td><?php echo htmlspecialchars($purchase['supplier_name']); ?></td>
+                                    <td>UGX <?php echo number_format($purchase['total_amount'], 2); ?></td>
+                                    <td>UGX <?php echo number_format($purchase['paid_amount'], 2); ?></td>
+                                    <td>UGX <?php echo number_format($balance, 2); ?></td>
+                                    <td>
+                                        <?php if ($purchase['payment_status'] == 'paid'): ?>
+                                            <span class="badge bg-success">Paid</span>
+                                        <?php elseif ($purchase['payment_status'] == 'partial'): ?>
+                                            <span class="badge bg-warning text-dark">Partial</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-danger">Unpaid</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($purchase['status'] == 'received'): ?>
+                                            <span class="badge bg-success">Received</span>
+                                        <?php elseif ($purchase['status'] == 'pending'): ?>
+                                            <span class="badge bg-warning text-dark">Pending</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-secondary">Cancelled</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><?php echo htmlspecialchars($purchase['created_by_name'] ?? 'System'); ?></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-info view-btn" 
+                                                data-id="<?php echo $purchase['purchase_id']; ?>"
+                                                title="View Details">
+                                            <i class="fas fa-eye"></i>
                                         </button>
-                                    </form>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                        
+                                        <?php if ($balance > 0): ?>
+                                        <button class="btn btn-sm btn-warning make-payment-btn" 
+                                                data-id="<?php echo $purchase['purchase_id']; ?>"
+                                                data-balance="<?php echo $balance; ?>"
+                                                title="Make Payment">
+                                            <i class="fas fa-money-bill"></i>
+                                        </button>
+                                        <?php endif; ?>
+                                        
+                                        <?php if ($purchase['status'] == 'pending'): ?>
+                                        <button class="btn btn-sm btn-success receive-btn" 
+                                                data-id="<?php echo $purchase['purchase_id']; ?>"
+                                                title="Receive Stock">
+                                            <i class="fas fa-box"></i>
+                                        </button>
+                                        <form method="POST" style="display:inline;">
+                                            <?php echo csrf_field(); ?>
+                                            <input type="hidden" name="purchase_id" value="<?php echo $purchase['purchase_id']; ?>">
+                                            <input type="hidden" name="action" value="delete">
+                                            <button type="submit" class="btn btn-sm btn-danger" 
+                                                    onclick="return confirm('Cancel this purchase order?');" 
+                                                    title="Cancel">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -338,7 +352,7 @@ $stores = $stmt->fetchAll();
                                 <option value="">Select Supplier</option>
                                 <?php foreach ($suppliers as $supplier): ?>
                                 <option value="<?php echo $supplier['supplier_id']; ?>">
-                                    <?php echo $supplier['supplier_name']; ?>
+                                    <?php echo htmlspecialchars($supplier['supplier_name']); ?>
                                 </option>
                                 <?php endforeach; ?>
                             </select>
@@ -436,7 +450,7 @@ $stores = $stmt->fetchAll();
                             <option value="">Select Store</option>
                             <?php foreach ($stores as $store): ?>
                             <option value="<?php echo $store['store_id']; ?>">
-                                <?php echo $store['store_name']; ?>
+                                <?php echo htmlspecialchars($store['store_name']); ?>
                             </option>
                             <?php endforeach; ?>
                         </select>
@@ -461,9 +475,9 @@ $stores = $stmt->fetchAll();
 <div class="modal fade" id="makePaymentModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <div class="modal-header bg-warning text-white">
+            <div class="modal-header bg-warning text-dark">
                 <h5 class="modal-title"><i class="fas fa-money-bill me-2"></i>Make Payment</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" id="paymentForm">
                 <?php echo csrf_field(); ?>
@@ -533,7 +547,7 @@ $stores = $stmt->fetchAll();
             </div>
             <div class="modal-body" id="purchase-details-container">
                 <!-- Details will be loaded here via AJAX -->
-                <div class="text-center">
+                <div class="text-center py-5">
                     <div class="spinner-border text-primary" role="status">
                         <span class="visually-hidden">Loading...</span>
                     </div>
@@ -550,6 +564,37 @@ $stores = $stmt->fetchAll();
 
 <script>
 jQuery(document).ready(function($) {
+    // ============================================
+    // SAFE DATATABLE INIT (Prevents reinitialization error)
+    // ============================================
+    setTimeout(function() {
+        var tableSelector = '#purchasesTable';
+        var $table = $(tableSelector);
+        
+        if ($table.length > 0) {
+            if (!$.fn.DataTable.isDataTable(tableSelector)) {
+                $table.DataTable({
+                    pageLength: 25,
+                    responsive: false,
+                    order: [[1, 'desc']], // Sort by Date descending
+                    language: {
+                        search: "", searchPlaceholder: "Search purchases...",
+                        lengthMenu: "Show _MENU_",
+                        info: "_START_–_END_ of _TOTAL_",
+                        infoEmpty: "No entries",
+                        infoFiltered: "(filtered from _MAX_)",
+                        paginate: {
+                            first: '<i class="fas fa-angle-double-left"></i>',
+                            last: '<i class="fas fa-angle-double-right"></i>',
+                            next: '<i class="fas fa-angle-right"></i>',
+                            previous: '<i class="fas fa-angle-left"></i>'
+                        }
+                    }
+                });
+            }
+        }
+    }, 200);
+
     let productIndex = 0;
     let productsData = [];
     
@@ -563,7 +608,7 @@ jQuery(document).ready(function($) {
                         <?php foreach ($products as $product): ?>
                         <option value="<?php echo $product['product_id']; ?>" 
                                 data-cost="<?php echo $product['purchase_price']; ?>">
-                            <?php echo $product['product_code']; ?> - <?php echo $product['product_name']; ?>
+                            <?php echo htmlspecialchars($product['product_code']); ?> - <?php echo htmlspecialchars($product['product_name']); ?>
                         </option>
                         <?php endforeach; ?>
                     </select>
@@ -670,6 +715,10 @@ jQuery(document).ready(function($) {
     $('.receive-btn').on('click', function() {
         const purchaseId = $(this).data('id');
         
+        $('#receive-items-container').html('<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>');
+        $('#receive_purchase_id').val(purchaseId);
+        $('#receiveStockModal').modal('show');
+
         // Load purchase items via AJAX
         $.ajax({
             url: '../includes/ajax_purchase_items.php',
@@ -678,43 +727,48 @@ jQuery(document).ready(function($) {
             dataType: 'json',
             success: function(items) {
                 let html = '';
-                items.forEach(function(item) {
-                    const hasExpiry = item.has_expiry === 'yes';
-                    html += `
-                        <div class="card mb-3">
-                            <div class="card-body">
-                                <h6>${item.product_name} (${item.product_code})</h6>
-                                <div class="row">
-                                    <div class="col-md-4">
-                                        <label>Quantity Ordered</label>
-                                        <input type="number" class="form-control" value="${item.quantity}" readonly>
+                if (!items || items.length === 0) {
+                    html = '<div class="alert alert-warning">No items found for this purchase.</div>';
+                } else {
+                    items.forEach(function(item) {
+                        const hasExpiry = item.has_expiry === 'yes';
+                        html += `
+                            <div class="card mb-3">
+                                <div class="card-body">
+                                    <h6>${item.product_name} (${item.product_code})</h6>
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label>Quantity Ordered</label>
+                                            <input type="number" class="form-control" value="${item.quantity}" readonly>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label>Quantity Receiving *</label>
+                                            <input type="number" class="form-control receive-qty" 
+                                                   data-product="${item.product_id}" 
+                                                   min="1" max="${item.quantity}" value="${item.quantity}" required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label>Batch Number *</label>
+                                            <input type="text" class="form-control receive-batch" 
+                                                   data-product="${item.product_id}" 
+                                                   value="BATCH<?php echo date('Ymd'); ?><?php echo rand(100, 999); ?>" required>
+                                        </div>
+                                        ${hasExpiry ? `
+                                        <div class="col-md-4 mt-2">
+                                            <label>Expiry Date</label>
+                                            <input type="date" class="form-control receive-expiry" 
+                                                   data-product="${item.product_id}">
+                                        </div>` : ''}
                                     </div>
-                                    <div class="col-md-4">
-                                        <label>Quantity Receiving *</label>
-                                        <input type="number" class="form-control receive-qty" 
-                                               data-product="${item.product_id}" 
-                                               min="1" max="${item.quantity}" value="${item.quantity}" required>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label>Batch Number *</label>
-                                        <input type="text" class="form-control receive-batch" 
-                                               data-product="${item.product_id}" 
-                                               value="BATCH<?php echo date('Ymd'); ?><?php echo rand(100, 999); ?>" required>
-                                    </div>
-                                    ${hasExpiry ? `
-                                    <div class="col-md-4 mt-2">
-                                        <label>Expiry Date</label>
-                                        <input type="date" class="form-control receive-expiry" 
-                                               data-product="${item.product_id}">
-                                    </div>` : ''}
                                 </div>
                             </div>
-                        </div>
-                    `;
-                });
+                        `;
+                    });
+                }
                 $('#receive-items-container').html(html);
-                $('#receive_purchase_id').val(purchaseId);
-                $('#receiveStockModal').modal('show');
+            },
+            error: function() {
+                $('#receive-items-container').html('<div class="alert alert-danger">Failed to load purchase items.</div>');
             }
         });
     });
@@ -784,14 +838,17 @@ jQuery(document).ready(function($) {
     $('.view-btn').on('click', function() {
         const purchaseId = $(this).data('id');
         
-        // Load purchase details via AJAX
+        $('#purchase-details-container').html(
+            '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>'
+        );
+        $('#viewPurchaseModal').modal('show');
+
         $.ajax({
             url: '../includes/ajax_purchase_details.php',
             method: 'POST',
             data: { purchase_id: purchaseId },
             success: function(html) {
                 $('#purchase-details-container').html(html);
-                $('#viewPurchaseModal').modal('show');
             },
             error: function() {
                 $('#purchase-details-container').html(

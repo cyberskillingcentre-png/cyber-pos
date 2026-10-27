@@ -100,9 +100,9 @@ $suppliers = $stmt->fetchAll();
 
 <div class="main-content">
     <div class="top-navbar">
-         <button class="btn btn-link d-md-none sidebar-toggle">
-                    <i class="fas fa-bars"></i>
-                </button>
+        <button class="btn btn-link d-md-none sidebar-toggle">
+            <i class="fas fa-bars"></i>
+        </button>
         <h5 class="mb-0"><i class="fas fa-box me-2"></i>Products Management</h5>
     </div>
     
@@ -116,74 +116,87 @@ $suppliers = $stmt->fetchAll();
         
         <div class="card">
             <div class="card-header d-flex justify-content-between">
-                <span><i class="fas fa-list me-2"></i>All Products</span>
+                <span><i class="fas fa-list me-2"></i>All Products (<?php echo count($products); ?>)</span>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">
                     <i class="fas fa-plus me-1"></i>Add Product
                 </button>
             </div>
             <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table datatable table-hover">
-                        <thead>
-                            <tr>
-                                <th>Code</th>
-                                <th>Barcode</th>
-                                <th>Name</th>
-                                <th>Category</th>
-                                <th>Purchase Price</th>
-                                <th>Selling Price</th>
-                                <th>Margin</th>
-                                <th>Tax Rate</th>
-                                <th>Expiry</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($products as $product): ?>
-                            <tr>
-                                <td><?php echo $product['product_code']; ?></td>
-                                <td><?php echo $product['barcode'] ?? 'N/A'; ?></td>
-                                <td><?php echo $product['product_name']; ?></td>
-                                <td><?php echo $product['category_name']; ?></td>
-                                <td>UGX <?php echo format_currency($product['purchase_price']); ?></td>
-                                <td>UGX <?php echo format_currency($product['selling_price']); ?></td>
-                                <td><?php echo $product['profit_margin']; ?>%</td>
-                                <td><?php echo $product['tax_rate']; ?>%</td>
-                                <td><?php echo $product['has_expiry'] == 'yes' ? '<span class="badge badge-warning">Yes</span>' : '<span class="badge badge-info">No</span>'; ?></td>
-                                <td><span class="badge badge-success">Active</span></td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary edit-btn" 
-                                            data-id="<?php echo $product['product_id']; ?>"
-                                            data-code="<?php echo $product['product_code']; ?>"
-                                            data-barcode="<?php echo $product['barcode']; ?>"
-                                            data-name="<?php echo htmlspecialchars($product['product_name']); ?>"
-                                            data-category="<?php echo $product['category_id']; ?>"
-                                            data-supplier="<?php echo $product['supplier_id']; ?>"
-                                            data-description="<?php echo htmlspecialchars($product['description']); ?>"
-                                            data-purchase="<?php echo $product['purchase_price']; ?>"
-                                            data-selling="<?php echo $product['selling_price']; ?>"
-                                            data-margin="<?php echo $product['profit_margin']; ?>"
-                                            data-tax="<?php echo $product['tax_rate']; ?>"
-                                            data-expiry="<?php echo $product['has_expiry']; ?>"
-                                            data-reorder="<?php echo $product['reorder_level']; ?>"
-                                            title="Edit">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <form method="POST" style="display:inline;">
-                                        <?php echo csrf_field(); ?>
-                                        <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
-                                        <input type="hidden" name="action" value="delete">
-                                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this product?');" title="Delete">
-                                            <i class="fas fa-trash"></i>
+                <?php if (empty($products)): ?>
+                    <!-- Empty State -->
+                    <div class="text-center py-5">
+                        <i class="fas fa-box-open fa-4x text-muted mb-3" style="opacity:0.2;"></i>
+                        <h4 class="text-muted mb-2">No Products Added Yet</h4>
+                        <p class="text-muted mb-4" style="font-size:0.9rem;">Your product catalog is currently empty. Add your first product to start selling.</p>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">
+                            <i class="fas fa-plus me-1"></i>Add Your First Product
+                        </button>
+                    </div>
+                <?php else: ?>
+                    <!-- Products Table -->
+                    <div class="table-responsive">
+                        <table class="table datatable table-hover" id="productsTable">
+                            <thead>
+                                <tr>
+                                    <th>Code</th>
+                                    <th>Barcode</th>
+                                    <th>Name</th>
+                                    <th>Category</th>
+                                    <th>Purchase Price</th>
+                                    <th>Selling Price</th>
+                                    <th>Margin</th>
+                                    <th>Tax Rate</th>
+                                    <th>Expiry</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($products as $product): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($product['product_code']); ?></td>
+                                    <td><?php echo htmlspecialchars($product['barcode'] ?? 'N/A'); ?></td>
+                                    <td><?php echo htmlspecialchars($product['product_name']); ?></td>
+                                    <td><?php echo htmlspecialchars($product['category_name'] ?? 'Uncategorized'); ?></td>
+                                    <td>UGX <?php echo number_format($product['purchase_price'], 0); ?></td>
+                                    <td>UGX <?php echo number_format($product['selling_price'], 0); ?></td>
+                                    <td><?php echo number_format($product['profit_margin'], 2); ?>%</td>
+                                    <td><?php echo number_format($product['tax_rate'], 2); ?>%</td>
+                                    <td><?php echo $product['has_expiry'] == 'yes' ? '<span class="badge bg-warning text-dark">Yes</span>' : '<span class="badge bg-info">No</span>'; ?></td>
+                                    <td><span class="badge bg-success">Active</span></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-primary edit-btn" 
+                                                data-id="<?php echo $product['product_id']; ?>"
+                                                data-code="<?php echo htmlspecialchars($product['product_code']); ?>"
+                                                data-barcode="<?php echo htmlspecialchars($product['barcode']); ?>"
+                                                data-name="<?php echo htmlspecialchars($product['product_name']); ?>"
+                                                data-category="<?php echo $product['category_id']; ?>"
+                                                data-supplier="<?php echo $product['supplier_id']; ?>"
+                                                data-description="<?php echo htmlspecialchars($product['description'] ?? ''); ?>"
+                                                data-purchase="<?php echo $product['purchase_price']; ?>"
+                                                data-selling="<?php echo $product['selling_price']; ?>"
+                                                data-margin="<?php echo $product['profit_margin']; ?>"
+                                                data-tax="<?php echo $product['tax_rate']; ?>"
+                                                data-expiry="<?php echo $product['has_expiry']; ?>"
+                                                data-reorder="<?php echo $product['reorder_level']; ?>"
+                                                title="Edit">
+                                            <i class="fas fa-edit"></i>
                                         </button>
-                                    </form>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                        <form method="POST" style="display:inline;">
+                                            <?php echo csrf_field(); ?>
+                                            <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
+                                            <input type="hidden" name="action" value="delete">
+                                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this product?');" title="Delete">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -219,7 +232,7 @@ $suppliers = $stmt->fetchAll();
                             <select name="category_id" class="form-select" required>
                                 <option value="">Select Category</option>
                                 <?php foreach ($categories as $cat): ?>
-                                <option value="<?php echo $cat['category_id']; ?>"><?php echo $cat['category_name']; ?></option>
+                                <option value="<?php echo $cat['category_id']; ?>"><?php echo htmlspecialchars($cat['category_name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -228,7 +241,7 @@ $suppliers = $stmt->fetchAll();
                             <select name="supplier_id" class="form-select">
                                 <option value="">Select Supplier</option>
                                 <?php foreach ($suppliers as $sup): ?>
-                                <option value="<?php echo $sup['supplier_id']; ?>"><?php echo $sup['supplier_name']; ?></option>
+                                <option value="<?php echo $sup['supplier_id']; ?>"><?php echo htmlspecialchars($sup['supplier_name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -313,7 +326,7 @@ $suppliers = $stmt->fetchAll();
                             <select name="category_id" id="edit_category_id" class="form-select" required>
                                 <option value="">Select Category</option>
                                 <?php foreach ($categories as $cat): ?>
-                                <option value="<?php echo $cat['category_id']; ?>"><?php echo $cat['category_name']; ?></option>
+                                <option value="<?php echo $cat['category_id']; ?>"><?php echo htmlspecialchars($cat['category_name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -322,7 +335,7 @@ $suppliers = $stmt->fetchAll();
                             <select name="supplier_id" id="edit_supplier_id" class="form-select">
                                 <option value="">Select Supplier</option>
                                 <?php foreach ($suppliers as $sup): ?>
-                                <option value="<?php echo $sup['supplier_id']; ?>"><?php echo $sup['supplier_name']; ?></option>
+                                <option value="<?php echo $sup['supplier_id']; ?>"><?php echo htmlspecialchars($sup['supplier_name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -375,6 +388,10 @@ $suppliers = $stmt->fetchAll();
 
 <script>
 jQuery(document).ready(function($) {
+    // NOTE: DataTables init is handled globally in footer.php for .datatable
+    // Do NOT initialise #productsTable here again, or you'll get:
+    // "DataTables warning: Cannot reinitialise DataTable"
+
     // Function to calculate profit margin
     function calculateProfitMargin(purchasePrice, sellingPrice, targetField) {
         purchasePrice = parseFloat(purchasePrice) || 0;
@@ -384,8 +401,6 @@ jQuery(document).ready(function($) {
             const profit = sellingPrice - purchasePrice;
             const margin = (profit / sellingPrice) * 100;
             $(targetField).val(margin.toFixed(2));
-        } else if (sellingPrice <= purchasePrice && sellingPrice > 0) {
-            $(targetField).val('0.00');
         } else {
             $(targetField).val('0.00');
         }
@@ -393,20 +408,24 @@ jQuery(document).ready(function($) {
     
     // AUTO-CALCULATE PROFIT MARGIN FOR ADD MODAL
     $('#add_purchase_price, #add_selling_price').on('input', function() {
-        const purchase = $('#add_purchase_price').val();
-        const selling = $('#add_selling_price').val();
-        calculateProfitMargin(purchase, selling, '#add_profit_margin');
+        calculateProfitMargin(
+            $('#add_purchase_price').val(),
+            $('#add_selling_price').val(),
+            '#add_profit_margin'
+        );
     });
     
     // AUTO-CALCULATE PROFIT MARGIN FOR EDIT MODAL
     $('#edit_purchase_price, #edit_selling_price').on('input', function() {
-        const purchase = $('#edit_purchase_price').val();
-        const selling = $('#edit_selling_price').val();
-        calculateProfitMargin(purchase, selling, '#edit_profit_margin');
+        calculateProfitMargin(
+            $('#edit_purchase_price').val(),
+            $('#edit_selling_price').val(),
+            '#edit_profit_margin'
+        );
     });
     
-    // Handle edit button click
-    $('.edit-btn').on('click', function() {
+    // Handle edit button click — use delegated event so it works with DataTables pagination
+    $(document).on('click', '.edit-btn', function() {
         const btn = $(this);
         
         $('#edit_product_id').val(btn.data('id'));

@@ -82,77 +82,91 @@ $customers = $stmt->fetchAll();
         
         <div class="card">
             <div class="card-header d-flex justify-content-between">
-                <span><i class="fas fa-list me-2"></i>All Customers</span>
+                <span><i class="fas fa-list me-2"></i>All Customers (<?php echo count($customers); ?>)</span>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCustomerModal">
                     <i class="fas fa-plus me-1"></i>Add Customer
                 </button>
             </div>
             <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table datatable table-hover">
-                        <thead>
-                            <tr>
-                                <th>Code</th>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Phone</th>
-                                <th>Type</th>
-                                <th>Discount %</th>
-                                <th>Total Purchases</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($customers as $customer): ?>
-                            <tr>
-                                <td><?php echo $customer['customer_code']; ?></td>
-                                <td><?php echo $customer['customer_name']; ?></td>
-                                <td><?php echo $customer['email']; ?></td>
-                                <td><?php echo $customer['phone']; ?></td>
-                                <td><span class="badge badge-info"><?php echo ucfirst($customer['customer_type']); ?></span></td>
-                                <td><?php echo $customer['discount_percentage']; ?>%</td>
-                                <td>UGX <?php echo format_currency($customer['total_purchases']); ?></td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary edit-btn" 
-                                            data-id="<?php echo $customer['customer_id']; ?>"
-                                            data-code="<?php echo $customer['customer_code']; ?>"
-                                            data-name="<?php echo htmlspecialchars($customer['customer_name']); ?>"
-                                            data-email="<?php echo htmlspecialchars($customer['email']); ?>"
-                                            data-phone="<?php echo $customer['phone']; ?>"
-                                            data-address="<?php echo htmlspecialchars($customer['address']); ?>"
-                                            data-type="<?php echo $customer['customer_type']; ?>"
-                                            data-discount="<?php echo $customer['discount_percentage']; ?>"
-                                            title="Edit">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-info view-btn" 
-                                            data-id="<?php echo $customer['customer_id']; ?>"
-                                            data-code="<?php echo $customer['customer_code']; ?>"
-                                            data-name="<?php echo htmlspecialchars($customer['customer_name']); ?>"
-                                            data-email="<?php echo htmlspecialchars($customer['email']); ?>"
-                                            data-phone="<?php echo $customer['phone']; ?>"
-                                            data-address="<?php echo htmlspecialchars($customer['address']); ?>"
-                                            data-type="<?php echo $customer['customer_type']; ?>"
-                                            data-discount="<?php echo $customer['discount_percentage']; ?>"
-                                            data-purchases="<?php echo $customer['total_purchases']; ?>"
-                                            data-created="<?php echo date('d/m/Y H:i', strtotime($customer['created_at'])); ?>"
-                                            title="View">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                    <form method="POST" style="display:inline;">
-                                        <?php echo csrf_field(); ?>
-                                        <input type="hidden" name="customer_id" value="<?php echo $customer['customer_id']; ?>">
-                                        <input type="hidden" name="action" value="delete">
-                                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this customer?');" title="Delete">
-                                            <i class="fas fa-trash"></i>
+                
+                <?php if (empty($customers)): ?>
+                    <!-- Empty State -->
+                    <div class="text-center py-5">
+                        <i class="fas fa-users fa-4x text-muted mb-3" style="opacity:0.2;"></i>
+                        <h4 class="text-muted mb-2">No Customers Added Yet</h4>
+                        <p class="text-muted mb-4" style="font-size:0.9rem;">Your customer list is empty. Add your first customer to start tracking purchases.</p>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCustomerModal">
+                            <i class="fas fa-plus me-1"></i>Add Your First Customer
+                        </button>
+                    </div>
+                <?php else: ?>
+                    <!-- Customers Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="customersTable">
+                            <thead>
+                                <tr>
+                                    <th>Code</th>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Phone</th>
+                                    <th>Type</th>
+                                    <th>Discount %</th>
+                                    <th>Total Purchases</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($customers as $customer): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($customer['customer_code']); ?></td>
+                                    <td><?php echo htmlspecialchars($customer['customer_name']); ?></td>
+                                    <td><?php echo htmlspecialchars($customer['email'] ?? '-'); ?></td>
+                                    <td><?php echo htmlspecialchars($customer['phone'] ?? '-'); ?></td>
+                                    <td><span class="badge bg-info"><?php echo ucfirst($customer['customer_type']); ?></span></td>
+                                    <td><?php echo htmlspecialchars($customer['discount_percentage']); ?>%</td>
+                                    <td>UGX <?php echo number_format($customer['total_purchases'], 0); ?></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-primary edit-btn" 
+                                                data-id="<?php echo $customer['customer_id']; ?>"
+                                                data-code="<?php echo htmlspecialchars($customer['customer_code']); ?>"
+                                                data-name="<?php echo htmlspecialchars($customer['customer_name']); ?>"
+                                                data-email="<?php echo htmlspecialchars($customer['email'] ?? ''); ?>"
+                                                data-phone="<?php echo htmlspecialchars($customer['phone'] ?? ''); ?>"
+                                                data-address="<?php echo htmlspecialchars($customer['address'] ?? ''); ?>"
+                                                data-type="<?php echo htmlspecialchars($customer['customer_type']); ?>"
+                                                data-discount="<?php echo htmlspecialchars($customer['discount_percentage']); ?>"
+                                                title="Edit">
+                                            <i class="fas fa-edit"></i>
                                         </button>
-                                    </form>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                        <button class="btn btn-sm btn-info view-btn" 
+                                                data-id="<?php echo $customer['customer_id']; ?>"
+                                                data-code="<?php echo htmlspecialchars($customer['customer_code']); ?>"
+                                                data-name="<?php echo htmlspecialchars($customer['customer_name']); ?>"
+                                                data-email="<?php echo htmlspecialchars($customer['email'] ?? ''); ?>"
+                                                data-phone="<?php echo htmlspecialchars($customer['phone'] ?? ''); ?>"
+                                                data-address="<?php echo htmlspecialchars($customer['address'] ?? ''); ?>"
+                                                data-type="<?php echo htmlspecialchars($customer['customer_type']); ?>"
+                                                data-discount="<?php echo htmlspecialchars($customer['discount_percentage']); ?>"
+                                                data-purchases="<?php echo htmlspecialchars($customer['total_purchases']); ?>"
+                                                data-created="<?php echo date('d/m/Y H:i', strtotime($customer['created_at'])); ?>"
+                                                title="View">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                        <form method="POST" style="display:inline;">
+                                            <?php echo csrf_field(); ?>
+                                            <input type="hidden" name="customer_id" value="<?php echo $customer['customer_id']; ?>">
+                                            <input type="hidden" name="action" value="delete">
+                                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this customer?');" title="Delete">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -167,6 +181,7 @@ $customers = $stmt->fetchAll();
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST">
+                <?php echo csrf_field(); ?>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Customer Name *</label>
@@ -217,6 +232,7 @@ $customers = $stmt->fetchAll();
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="customer_id" id="edit_customer_id">
                 <div class="modal-body">
                     <div class="mb-3">
@@ -273,76 +289,40 @@ $customers = $stmt->fetchAll();
             </div>
             <div class="modal-body">
                 <div class="row mb-3">
-                    <div class="col-6">
-                        <strong>Customer Code:</strong>
-                    </div>
-                    <div class="col-6">
-                        <span id="view_customer_code"></span>
-                    </div>
+                    <div class="col-6"><strong>Customer Code:</strong></div>
+                    <div class="col-6"><span id="view_customer_code"></span></div>
                 </div>
                 <div class="row mb-3">
-                    <div class="col-6">
-                        <strong>Name:</strong>
-                    </div>
-                    <div class="col-6">
-                        <span id="view_customer_name"></span>
-                    </div>
+                    <div class="col-6"><strong>Name:</strong></div>
+                    <div class="col-6"><span id="view_customer_name"></span></div>
                 </div>
                 <div class="row mb-3">
-                    <div class="col-6">
-                        <strong>Email:</strong>
-                    </div>
-                    <div class="col-6">
-                        <span id="view_email"></span>
-                    </div>
+                    <div class="col-6"><strong>Email:</strong></div>
+                    <div class="col-6"><span id="view_email"></span></div>
                 </div>
                 <div class="row mb-3">
-                    <div class="col-6">
-                        <strong>Phone:</strong>
-                    </div>
-                    <div class="col-6">
-                        <span id="view_phone"></span>
-                    </div>
+                    <div class="col-6"><strong>Phone:</strong></div>
+                    <div class="col-6"><span id="view_phone"></span></div>
                 </div>
                 <div class="row mb-3">
-                    <div class="col-6">
-                        <strong>Address:</strong>
-                    </div>
-                    <div class="col-6">
-                        <span id="view_address"></span>
-                    </div>
+                    <div class="col-6"><strong>Address:</strong></div>
+                    <div class="col-6"><span id="view_address"></span></div>
                 </div>
                 <div class="row mb-3">
-                    <div class="col-6">
-                        <strong>Customer Type:</strong>
-                    </div>
-                    <div class="col-6">
-                        <span id="view_customer_type"></span>
-                    </div>
+                    <div class="col-6"><strong>Customer Type:</strong></div>
+                    <div class="col-6"><span id="view_customer_type"></span></div>
                 </div>
                 <div class="row mb-3">
-                    <div class="col-6">
-                        <strong>Discount:</strong>
-                    </div>
-                    <div class="col-6">
-                        <span id="view_discount"></span>%
-                    </div>
+                    <div class="col-6"><strong>Discount:</strong></div>
+                    <div class="col-6"><span id="view_discount"></span>%</div>
                 </div>
                 <div class="row mb-3">
-                    <div class="col-6">
-                        <strong>Total Purchases:</strong>
-                    </div>
-                    <div class="col-6">
-                        <span class="text-success"><strong>UGX <span id="view_purchases"></span></strong></span>
-                    </div>
+                    <div class="col-6"><strong>Total Purchases:</strong></div>
+                    <div class="col-6"><span class="text-success"><strong>UGX <span id="view_purchases"></span></strong></span></div>
                 </div>
                 <div class="row mb-3">
-                    <div class="col-6">
-                        <strong>Created On:</strong>
-                    </div>
-                    <div class="col-6">
-                        <span id="view_created"></span>
-                    </div>
+                    <div class="col-6"><strong>Created On:</strong></div>
+                    <div class="col-6"><span id="view_created"></span></div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -356,6 +336,37 @@ $customers = $stmt->fetchAll();
 
 <script>
 jQuery(document).ready(function($) {
+    // ============================================
+    // SAFE DATATABLE INIT
+    // ============================================
+    setTimeout(function() {
+        var tableSelector = '#customersTable';
+        var $table = $(tableSelector);
+        
+        if ($table.length > 0) {
+            if (!$.fn.DataTable.isDataTable(tableSelector)) {
+                $table.DataTable({
+                    pageLength: 25,
+                    responsive: false,
+                    order: [],
+                    language: {
+                        search: "", searchPlaceholder: "Search customers...",
+                        lengthMenu: "Show _MENU_",
+                        info: "_START_–_END_ of _TOTAL_",
+                        infoEmpty: "No entries",
+                        infoFiltered: "(filtered from _MAX_)",
+                        paginate: {
+                            first: '<i class="fas fa-angle-double-left"></i>',
+                            last: '<i class="fas fa-angle-double-right"></i>',
+                            next: '<i class="fas fa-angle-right"></i>',
+                            previous: '<i class="fas fa-angle-left"></i>'
+                        }
+                    }
+                });
+            }
+        }
+    }, 200);
+
     // Handle edit button click
     $('.edit-btn').on('click', function() {
         const btn = $(this);
@@ -381,7 +392,7 @@ jQuery(document).ready(function($) {
         $('#view_email').text(btn.data('email') || 'N/A');
         $('#view_phone').text(btn.data('phone'));
         $('#view_address').text(btn.data('address') || 'N/A');
-        $('#view_customer_type').html('<span class="badge badge-info">' + btn.data('type').charAt(0).toUpperCase() + btn.data('type').slice(1) + '</span>');
+        $('#view_customer_type').html('<span class="badge bg-info">' + btn.data('type').charAt(0).toUpperCase() + btn.data('type').slice(1) + '</span>');
         $('#view_discount').text(btn.data('discount'));
         $('#view_purchases').text(parseFloat(btn.data('purchases')).toLocaleString());
         $('#view_created').text(btn.data('created'));

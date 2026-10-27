@@ -55,7 +55,7 @@ try {
         LEFT JOIN customers c ON s.customer_id = c.customer_id 
         WHERE s.served_by = ? 
         ORDER BY s.sale_date DESC 
-        LIMIT 10
+        LIMIT 8
     ");
     $stmt->execute([$_SESSION['user_id']]);
     $recent_sales = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -70,7 +70,7 @@ try {
         WHERE s.served_by = ? 
         AND s.status = 'completed'
         AND MONTH(s.sale_date) = MONTH(CURDATE())
-        GROUP BY p.product_id
+        GROUP BY p.product_id, p.product_name
         ORDER BY total_sold DESC
         LIMIT 5
     ");
@@ -108,6 +108,353 @@ foreach ($sales_chart_data as $data) {
 <?php include '../includes/header.php'; ?>
 <?php include '../includes/employee_sidebar.php'; ?>
 
+<style>
+/* ============================================
+   COMPACT EMPLOYEE DASHBOARD
+   ============================================ */
+.dash-wrap {
+    background: #F8FAFC;
+    min-height: calc(100vh - 60px);
+    padding: 20px !important;
+}
+
+/* Welcome Banner */
+.welcome-banner {
+    background: linear-gradient(135deg, #1A202C 0%, #2D3748 100%);
+    border-radius: 12px;
+    padding: 20px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.welcome-text h2 {
+    color: #fff;
+    font-size: 1.3rem;
+    font-weight: 800;
+    margin-bottom: 2px;
+}
+
+.welcome-text h2 span {
+    color: #ED8936;
+}
+
+.welcome-text p {
+    color: rgba(255, 255, 255, 0.7);
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+.btn-start-sale {
+    background: #6B46C1;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.75rem;
+    padding: 10px 18px;
+    border-radius: 8px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.btn-start-sale:hover {
+    background: #553C9A;
+    color: #fff;
+    transform: translateY(-2px);
+}
+
+/* Stat Cards */
+.stat-card-compact {
+    background: #fff;
+    border-radius: 10px;
+    padding: 16px;
+    border: 1px solid #E2E8F0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    height: 100%;
+    transition: all 0.2s;
+}
+
+.stat-card-compact:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.stat-icon-compact {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.icon-purple { background: rgba(107, 70, 193, 0.1); color: #6B46C1; }
+.icon-orange { background: rgba(237, 137, 54, 0.1); color: #ED8936; }
+.icon-cyan { background: rgba(0, 181, 216, 0.1); color: #00B5D8; }
+
+.stat-content-compact {
+    flex: 1;
+    min-width: 0;
+}
+
+.stat-label-compact {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #718096;
+    margin-bottom: 2px;
+}
+
+.stat-value-compact {
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: #1A202C;
+    margin-bottom: 2px;
+    line-height: 1;
+}
+
+.stat-meta-compact {
+    font-size: 0.7rem;
+    color: #4A5568;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Chart & Lists */
+.compact-card {
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #E2E8F0;
+    overflow: hidden;
+    height: 100%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    display: flex;
+    flex-direction: column;
+}
+
+.compact-card-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #EDF2F7;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #1A202C;
+}
+
+.compact-card-header i {
+    color: #6B46C1;
+    margin-right: 6px;
+}
+
+.compact-card-body {
+    padding: 16px;
+    flex: 1;
+    position: relative;
+}
+
+/* Top Products */
+.top-prod-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.top-prod-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px dashed #EDF2F7;
+}
+
+.top-prod-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.top-prod-rank {
+    width: 24px;
+    height: 24px;
+    background: #EDF2F7;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 800;
+    color: #4A5568;
+}
+
+.top-prod-rank.rank-1 { background: #FEFCBF; color: #B7791F; }
+.top-prod-rank.rank-2 { background: #E2E8F0; color: #4A5568; }
+.top-prod-rank.rank-3 { background: #FBD38D; color: #9C4221; }
+
+.top-prod-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.top-prod-info h6 {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #1A202C;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.top-prod-info small {
+    font-size: 0.7rem;
+    color: #718096;
+}
+
+.top-prod-rev {
+    font-weight: 700;
+    font-size: 0.8rem;
+    color: #2F855A;
+}
+
+/* Quick Actions */
+.qa-grid-compact {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+}
+
+.qa-btn-compact {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 8px;
+    border-radius: 10px;
+    text-decoration: none;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.7rem;
+    text-align: center;
+    transition: all 0.2s;
+}
+
+.qa-btn-compact:hover {
+    transform: translateY(-2px);
+    color: #fff;
+}
+
+.qa-btn-compact i {
+    font-size: 1.2rem;
+}
+
+.qa-bg-purple { background: #6B46C1; }
+.qa-bg-orange { background: #ED8936; }
+.qa-bg-cyan { background: #00B5D8; }
+.qa-bg-blue { background: #4299E1; }
+
+/* Table */
+.compact-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.compact-table th {
+    background: #F8FAFC;
+    color: #64748B;
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid #E2E8F0;
+}
+
+.compact-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #F1F5F9;
+    vertical-align: middle;
+    font-size: 0.78rem;
+}
+
+.compact-table tr:hover td {
+    background: #F8FAFC;
+}
+
+.compact-table tr:last-child td {
+    border-bottom: none;
+}
+
+.inv-num {
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    color: #6B46C1;
+}
+
+.badge-soft {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    display: inline-block;
+}
+
+.badge-soft-cash { background: #DEF7EC; color: #03543F; }
+.badge-soft-mobile { background: #FEF08A; color: #713F12; }
+.badge-soft-credit { background: #FDE8E8; color: #9B1C1C; }
+.badge-soft-card { background: #E1EFFE; color: #1E429F; }
+
+.btn-view-sm {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    background: rgba(107, 70, 193, 0.1);
+    color: #6B46C1;
+    text-decoration: none;
+    transition: 0.2s;
+}
+
+.btn-view-sm:hover {
+    background: #6B46C1;
+    color: #fff;
+}
+
+.empty-compact {
+    text-align: center;
+    padding: 30px 15px;
+    color: #A0AEC0;
+}
+
+.empty-compact i {
+    font-size: 2rem;
+    opacity: 0.3;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.empty-compact p {
+    font-size: 0.8rem;
+    margin: 0;
+}
+</style>
+
 <div class="main-content">
     <!-- Top Navbar -->
     <div class="top-navbar">
@@ -126,11 +473,11 @@ foreach ($sales_chart_data as $data) {
                 </h5>
             </div>
             <div class="d-flex align-items-center gap-3">
-                <span class="text-muted d-none d-md-inline">
-                    <i class="fas fa-calendar-alt me-2"></i>
+                <span class="text-muted d-none d-md-inline" style="font-size:0.8rem;">
+                    <i class="fas fa-calendar-alt me-1"></i>
                     <?php echo date('D, M j, Y'); ?>
                 </span>
-                <div class="user-badge">
+                <div class="user-badge" style="padding: 4px 12px; font-size: 0.75rem;">
                     <i class="fas fa-user-circle"></i>
                     <span><?php echo htmlspecialchars($_SESSION['full_name']); ?></span>
                 </div>
@@ -138,112 +485,92 @@ foreach ($sales_chart_data as $data) {
         </div>
     </div>
     
-    <div class="content-area">
+    <div class="content-area dash-wrap">
         <?php $alert = get_alert(); if ($alert): ?>
-            <div class="alert alert-<?php echo $alert['type']; ?> alert-dismissible fade show">
+            <div class="alert alert-<?php echo $alert['type']; ?> alert-dismissible fade show py-2 px-3" style="font-size:0.85rem;">
                 <i class="fas fa-<?php echo $alert['type'] == 'success' ? 'check-circle' : 'exclamation-circle'; ?> me-2"></i>
                 <?php echo $alert['message']; ?>
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" style="padding: 0.8rem;"></button>
             </div>
         <?php endif; ?>
         
         <!-- Welcome Banner -->
-        <div class="welcome-banner mb-4">
-            <div class="welcome-content">
-                <div class="welcome-text">
-                    <h2>Hello, <span><?php echo explode(' ', $_SESSION['full_name'])[0]; ?></span>! 👋</h2>
-                    <p>Here's your performance summary for today.</p>
-                </div>
-                <div class="welcome-actions">
-                    <a href="pos.php" class="btn btn-primary btn-lg">
-                        <i class="fas fa-cash-register me-2"></i>Start New Sale
-                    </a>
-                </div>
+        <div class="welcome-banner">
+            <div class="welcome-text">
+                <h2>Hello, <span><?php echo explode(' ', $_SESSION['full_name'])[0]; ?></span>! 👋</h2>
+                <p>Here's your performance summary.</p>
             </div>
-            <div class="welcome-decoration">
-                <div class="circle circle-1"></div>
-                <div class="circle circle-2"></div>
-                <div class="circle circle-3"></div>
-            </div>
+            <a href="pos.php" class="btn-start-sale">
+                <i class="fas fa-cash-register"></i> New Sale
+            </a>
         </div>
         
         <!-- Stats Cards -->
-        <div class="row g-4 mb-4">
+        <div class="row g-3 mb-3">
             <div class="col-lg-4 col-md-6">
-                <div class="stat-card stat-card-purple">
-                    <div class="stat-icon">
+                <div class="stat-card-compact">
+                    <div class="stat-icon-compact icon-purple">
                         <i class="fas fa-shopping-cart"></i>
                     </div>
-                    <div class="stat-content">
-                        <span class="stat-label">Today's Sales</span>
-                        <h3 class="stat-value"><?php echo number_format($today_sales['count']); ?></h3>
-                        <span class="stat-meta">
-                            <i class="fas fa-money-bill-wave"></i>
-                            UGX <?php echo format_currency($today_sales['total']); ?>
-                        </span>
+                    <div class="stat-content-compact">
+                        <div class="stat-label-compact">Today's Sales</div>
+                        <div class="stat-value-compact"><?php echo number_format($today_sales['count']); ?></div>
+                        <div class="stat-meta-compact">
+                            <i class="fas fa-money-bill-wave text-muted"></i>
+                            UGX <?php echo number_format($today_sales['total'], 0); ?>
+                        </div>
                     </div>
-                    <div class="stat-glow"></div>
                 </div>
             </div>
             
             <div class="col-lg-4 col-md-6">
-                <div class="stat-card stat-card-orange">
-                    <div class="stat-icon">
+                <div class="stat-card-compact">
+                    <div class="stat-icon-compact icon-orange">
                         <i class="fas fa-calendar-week"></i>
                     </div>
-                    <div class="stat-content">
-                        <span class="stat-label">This Week</span>
-                        <h3 class="stat-value"><?php echo number_format($week_sales['count']); ?></h3>
-                        <span class="stat-meta">
-                            <i class="fas fa-chart-line"></i>
-                            UGX <?php echo format_currency($week_sales['total']); ?>
-                        </span>
+                    <div class="stat-content-compact">
+                        <div class="stat-label-compact">This Week</div>
+                        <div class="stat-value-compact"><?php echo number_format($week_sales['count']); ?></div>
+                        <div class="stat-meta-compact">
+                            <i class="fas fa-chart-line text-muted"></i>
+                            UGX <?php echo number_format($week_sales['total'], 0); ?>
+                        </div>
                     </div>
-                    <div class="stat-glow"></div>
                 </div>
             </div>
             
             <div class="col-lg-4 col-md-6">
-                <div class="stat-card stat-card-cyan">
-                    <div class="stat-icon">
-                        <i class="fas fa-chart-line"></i>
+                <div class="stat-card-compact">
+                    <div class="stat-icon-compact icon-cyan">
+                        <i class="fas fa-chart-bar"></i>
                     </div>
-                    <div class="stat-content">
-                        <span class="stat-label">This Month</span>
-                        <h3 class="stat-value"><?php echo number_format($month_sales['count']); ?></h3>
-                        <span class="stat-meta">
-                            <i class="fas fa-money-bill-wave"></i>
-                            UGX <?php echo format_currency($month_sales['total']); ?>
-                        </span>
+                    <div class="stat-content-compact">
+                        <div class="stat-label-compact">This Month</div>
+                        <div class="stat-value-compact"><?php echo number_format($month_sales['count']); ?></div>
+                        <div class="stat-meta-compact">
+                            <i class="fas fa-money-bill-wave text-muted"></i>
+                            UGX <?php echo number_format($month_sales['total'], 0); ?>
+                        </div>
                     </div>
-                    <div class="stat-glow"></div>
                 </div>
             </div>
         </div>
         
-        <!-- Chart + Top Products Row -->
-        <div class="row g-4 mb-4">
+        <!-- Chart + Top Products -->
+        <div class="row g-3 mb-3">
             <!-- Sales Chart -->
             <div class="col-lg-8">
-                <div class="card cyber-card h-100">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>
-                            <i class="fas fa-chart-area me-2"></i>
-                            My Sales (Last 7 Days)
-                        </span>
-                        <span class="badge bg-warning text-dark">Weekly</span>
+                <div class="compact-card">
+                    <div class="compact-card-header">
+                        <span><i class="fas fa-chart-area"></i> My Sales (Last 7 Days)</span>
                     </div>
-                    <div class="card-body">
+                    <div class="compact-card-body">
                         <?php if (!empty($chart_values)): ?>
-                            <canvas id="mySalesChart" height="100"></canvas>
+                            <canvas id="mySalesChart" height="80"></canvas>
                         <?php else: ?>
-                            <div class="empty-state">
+                            <div class="empty-compact">
                                 <i class="fas fa-chart-line"></i>
-                                <h5>No sales yet</h5>
-                                <p>Start selling to see your performance chart</p>
-                                <a href="pos.php" class="btn btn-primary mt-3">
-                                    <i class="fas fa-cash-register me-2"></i>Go to POS
-                                </a>
+                                <p>No sales yet</p>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -252,31 +579,30 @@ foreach ($sales_chart_data as $data) {
             
             <!-- Top Products -->
             <div class="col-lg-4">
-                <div class="card cyber-card h-100">
-                    <div class="card-header">
-                        <i class="fas fa-fire me-2"></i>
-                        My Top Products
+                <div class="compact-card">
+                    <div class="compact-card-header">
+                        <span><i class="fas fa-fire"></i> My Top Products</span>
                     </div>
-                    <div class="card-body p-0">
+                    <div class="compact-card-body p-3">
                         <?php if (count($top_products) > 0): ?>
-                            <div class="top-products-list">
+                            <div class="top-prod-list">
                                 <?php $rank = 1; foreach ($top_products as $product): ?>
-                                    <div class="top-product-item">
-                                        <div class="rank rank-<?php echo $rank; ?>"><?php echo $rank++; ?></div>
-                                        <div class="product-info">
+                                    <div class="top-prod-item">
+                                        <div class="top-prod-rank rank-<?php echo $rank; ?>"><?php echo $rank++; ?></div>
+                                        <div class="top-prod-info">
                                             <h6><?php echo htmlspecialchars($product['product_name']); ?></h6>
-                                            <small><?php echo $product['total_sold']; ?> units sold</small>
+                                            <small><?php echo $product['total_sold']; ?> units</small>
                                         </div>
-                                        <div class="product-revenue">
-                                            <?php echo format_currency($product['revenue']); ?>
+                                        <div class="top-prod-rev">
+                                            <?php echo number_format($product['revenue'], 0); ?>
                                         </div>
                                     </div>
                                 <?php endforeach; ?>
                             </div>
                         <?php else: ?>
-                            <div class="empty-state">
+                            <div class="empty-compact">
                                 <i class="fas fa-chart-bar"></i>
-                                <p>No sales data yet</p>
+                                <p>No data yet</p>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -285,31 +611,25 @@ foreach ($sales_chart_data as $data) {
         </div>
         
         <!-- Quick Actions -->
-        <div class="row g-4 mb-4">
+        <div class="row g-3 mb-3">
             <div class="col-12">
-                <div class="card cyber-card">
-                    <div class="card-header">
-                        <i class="fas fa-bolt me-2"></i>
-                        Quick Actions
+                <div class="compact-card">
+                    <div class="compact-card-header">
+                        <span><i class="fas fa-bolt"></i> Quick Actions</span>
                     </div>
-                    <div class="card-body">
-                        <div class="quick-actions-grid">
-                            <a href="pos.php" class="quick-action-btn quick-action-purple">
-                                <i class="fas fa-cash-register"></i>
-                                <span>New Sale</span>
+                    <div class="compact-card-body py-2">
+                        <div class="qa-grid-compact">
+                            <a href="pos.php" class="qa-btn-compact qa-bg-purple">
+                                <i class="fas fa-cash-register"></i><span>New Sale</span>
                             </a>
-                            <a href="my-sales.php" class="quick-action-btn quick-action-orange">
-                                <i class="fas fa-receipt"></i>
-                                <span>My Sales</span>
+                            <a href="my-sales.php" class="qa-btn-compact qa-bg-orange">
+                                <i class="fas fa-receipt"></i><span>My Sales</span>
                             </a>
-                            <a href="profile.php" class="quick-action-btn quick-action-cyan">
-                                <i class="fas fa-user-cog"></i>
-                                <span>My Profile</span>
+                            <a href="profile.php" class="qa-btn-compact qa-bg-cyan">
+                                <i class="fas fa-user-cog"></i><span>Profile</span>
                             </a>
-                            <a href="../logout.php" class="quick-action-btn quick-action-blue"
-                               onclick="return confirm('Log out?');">
-                                <i class="fas fa-sign-out-alt"></i>
-                                <span>Logout</span>
+                            <a href="../logout.php" class="qa-btn-compact qa-bg-blue" onclick="return confirm('Log out?');">
+                                <i class="fas fa-sign-out-alt"></i><span>Logout</span>
                             </a>
                         </div>
                     </div>
@@ -318,27 +638,23 @@ foreach ($sales_chart_data as $data) {
         </div>
         
         <!-- Recent Sales -->
-        <div class="row g-4">
+        <div class="row g-3">
             <div class="col-12">
-                <div class="card cyber-card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>
-                            <i class="fas fa-receipt me-2"></i>
-                            My Recent Sales
-                        </span>
-                        <a href="my-sales.php" class="btn btn-sm btn-outline-light">
-                            View All <i class="fas fa-arrow-right ms-1"></i>
+                <div class="compact-card">
+                    <div class="compact-card-header">
+                        <span><i class="fas fa-receipt"></i> Recent Sales</span>
+                        <a href="my-sales.php" class="btn btn-sm btn-outline-secondary" style="font-size:0.7rem; padding:2px 8px;">
+                            View All
                         </a>
                     </div>
-                    <div class="card-body p-0">
+                    <div class="compact-card-body p-0">
                         <div class="table-responsive">
-                            <table class="table cyber-table mb-0">
+                            <table class="compact-table">
                                 <thead>
                                     <tr>
-                                        <th>Invoice #</th>
-                                        <th>Date & Time</th>
+                                        <th>Invoice</th>
+                                        <th>Date</th>
                                         <th>Customer</th>
-                                        <th>Store</th>
                                         <th>Amount</th>
                                         <th>Payment</th>
                                         <th class="text-center">Action</th>
@@ -348,44 +664,27 @@ foreach ($sales_chart_data as $data) {
                                     <?php if (count($recent_sales) > 0): ?>
                                         <?php foreach ($recent_sales as $sale): ?>
                                             <tr>
+                                                <td><span class="inv-num"><?php echo htmlspecialchars($sale['invoice_number']); ?></span></td>
                                                 <td>
-                                                    <span class="invoice-number">
-                                                        <?php echo htmlspecialchars($sale['invoice_number']); ?>
-                                                    </span>
+                                                    <div style="font-weight:600;"><?php echo date('M d', strtotime($sale['sale_date'])); ?></div>
+                                                    <small class="text-muted" style="font-size:0.7rem;"><?php echo date('H:i A', strtotime($sale['sale_date'])); ?></small>
                                                 </td>
+                                                <td><?php echo htmlspecialchars($sale['customer_name'] ?? 'Walk-in'); ?></td>
+                                                <td><strong>UGX <?php echo number_format($sale['total_amount'], 0); ?></strong></td>
                                                 <td>
-                                                    <div class="date-cell">
-                                                        <span class="date"><?php echo date('M d, Y', strtotime($sale['sale_date'])); ?></span>
-                                                        <span class="time"><?php echo date('H:i A', strtotime($sale['sale_date'])); ?></span>
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    <?php if (!empty($sale['customer_name'])): ?>
-                                                        <span class="customer-name">
-                                                            <?php echo htmlspecialchars($sale['customer_name']); ?>
-                                                        </span>
-                                                    <?php else: ?>
-                                                        <span class="text-muted">Walk-in</span>
-                                                    <?php endif; ?>
-                                                </td>
-                                                <td>
-                                                    <span class="store-badge">
-                                                        <?php echo htmlspecialchars($sale['store_name'] ?? 'N/A'); ?>
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <span class="amount">
-                                                        UGX <?php echo format_currency($sale['total_amount']); ?>
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <span class="payment-badge payment-<?php echo $sale['payment_method']; ?>">
-                                                        <?php echo ucfirst(str_replace('_', ' ', $sale['payment_method'])); ?>
+                                                    <?php 
+                                                    $pm = $sale['payment_method'];
+                                                    $pmClass = 'badge-soft-cash';
+                                                    if ($pm == 'mobile_money') $pmClass = 'badge-soft-mobile';
+                                                    if ($pm == 'credit') $pmClass = 'badge-soft-credit';
+                                                    if ($pm == 'card') $pmClass = 'badge-soft-card';
+                                                    ?>
+                                                    <span class="badge-soft <?php echo $pmClass; ?>">
+                                                        <?php echo ucfirst(str_replace('_', ' ', $pm)); ?>
                                                     </span>
                                                 </td>
                                                 <td class="text-center">
-                                                    <a href="view-sale.php?id=<?php echo $sale['sale_id']; ?>" 
-                                                       class="btn-action btn-view" title="View">
+                                                    <a href="view-sale.php?id=<?php echo $sale['sale_id']; ?>" class="btn-view-sm">
                                                         <i class="fas fa-eye"></i>
                                                     </a>
                                                 </td>
@@ -393,14 +692,10 @@ foreach ($sales_chart_data as $data) {
                                         <?php endforeach; ?>
                                     <?php else: ?>
                                         <tr>
-                                            <td colspan="7">
-                                                <div class="empty-state">
+                                            <td colspan="6">
+                                                <div class="empty-compact">
                                                     <i class="fas fa-receipt"></i>
-                                                    <h5>No sales yet</h5>
-                                                    <p>Your completed sales will appear here</p>
-                                                    <a href="pos.php" class="btn btn-primary mt-3">
-                                                        <i class="fas fa-cash-register me-2"></i>Make Your First Sale
-                                                    </a>
+                                                    <p>No sales yet</p>
                                                 </div>
                                             </td>
                                         </tr>
@@ -415,578 +710,69 @@ foreach ($sales_chart_data as $data) {
     </div>
 </div>
 
-<!-- Employee Dashboard Styles (uses shared classes + additions) -->
-<style>
-/* Welcome Banner */
-.welcome-banner {
-    background: linear-gradient(135deg, #1A202C 0%, #2D3748 100%);
-    border-radius: 12px;
-    padding: 32px;
-    position: relative;
-    overflow: hidden;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-}
-
-.welcome-content {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    position: relative;
-    z-index: 2;
-    flex-wrap: wrap;
-    gap: 20px;
-}
-
-.welcome-text h2 {
-    color: #fff;
-    font-size: 1.75rem;
-    font-weight: 700;
-    margin-bottom: 8px;
-}
-
-.welcome-text h2 span {
-    background: linear-gradient(135deg, #ED8936, #FBD38D);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-.welcome-text p {
-    color: rgba(255, 255, 255, 0.7);
-    margin: 0;
-    font-size: 0.95rem;
-}
-
-.welcome-actions .btn {
-    padding: 12px 24px;
-    font-weight: 600;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #6B46C1, #553C9A);
-    color: #fff;
-    border: none;
-    box-shadow: 0 4px 15px rgba(107, 70, 193, 0.4);
-    transition: all 0.3s ease;
-}
-
-.welcome-actions .btn:hover {
-    background: linear-gradient(135deg, #553C9A, #6B46C1);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(107, 70, 193, 0.5);
-    color: #fff;
-}
-
-.welcome-decoration {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-}
-
-.welcome-decoration .circle {
-    position: absolute;
-    border-radius: 50%;
-    opacity: 0.1;
-}
-
-.welcome-decoration .circle-1 {
-    width: 300px;
-    height: 300px;
-    background: #6B46C1;
-    top: -150px;
-    right: -50px;
-}
-
-.welcome-decoration .circle-2 {
-    width: 200px;
-    height: 200px;
-    background: #ED8936;
-    bottom: -100px;
-    right: 150px;
-}
-
-.welcome-decoration .circle-3 {
-    width: 150px;
-    height: 150px;
-    background: #00B5D8;
-    top: 50%;
-    right: 300px;
-    transform: translateY(-50%);
-}
-
-/* Stat Cards */
-.stat-card {
-    background: #fff;
-    border-radius: 12px;
-    padding: 24px;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: flex-start;
-    gap: 20px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    transition: all 0.3s ease;
-    border: 1px solid #E2E8F0;
-}
-
-.stat-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-}
-
-.stat-card-purple { border-left: 4px solid #6B46C1; }
-.stat-card-orange { border-left: 4px solid #ED8936; }
-.stat-card-cyan { border-left: 4px solid #00B5D8; }
-
-.stat-icon {
-    width: 60px;
-    height: 60px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.5rem;
-    flex-shrink: 0;
-}
-
-.stat-card-purple .stat-icon {
-    background: linear-gradient(135deg, rgba(107, 70, 193, 0.15), rgba(107, 70, 193, 0.05));
-    color: #6B46C1;
-}
-
-.stat-card-orange .stat-icon {
-    background: linear-gradient(135deg, rgba(237, 137, 54, 0.15), rgba(237, 137, 54, 0.05));
-    color: #ED8936;
-}
-
-.stat-card-cyan .stat-icon {
-    background: linear-gradient(135deg, rgba(0, 181, 216, 0.15), rgba(0, 181, 216, 0.05));
-    color: #00B5D8;
-}
-
-.stat-content { flex: 1; min-width: 0; }
-
-.stat-label {
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #718096;
-    display: block;
-    margin-bottom: 4px;
-}
-
-.stat-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #1A202C;
-    margin-bottom: 6px;
-    line-height: 1.2;
-}
-
-.stat-meta {
-    font-size: 0.8rem;
-    color: #718096;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.stat-glow {
-    position: absolute;
-    top: -50%;
-    right: -50%;
-    width: 100%;
-    height: 100%;
-    border-radius: 50%;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
-}
-
-.stat-card-purple .stat-glow { background: radial-gradient(circle, rgba(107, 70, 193, 0.2), transparent 70%); }
-.stat-card-orange .stat-glow { background: radial-gradient(circle, rgba(237, 137, 54, 0.2), transparent 70%); }
-.stat-card-cyan .stat-glow { background: radial-gradient(circle, rgba(0, 181, 216, 0.2), transparent 70%); }
-
-.stat-card:hover .stat-glow { opacity: 1; }
-
-/* Cyber Card */
-.cyber-card {
-    background: #fff;
-    border: 1px solid #E2E8F0;
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    transition: all 0.3s ease;
-}
-
-.cyber-card:hover { box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15); }
-
-.cyber-card .card-header {
-    background: linear-gradient(135deg, #1A202C 0%, #2D3748 100%);
-    color: #fff;
-    padding: 16px 20px;
-    border: none;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-}
-
-.cyber-card .card-header i { color: #ED8936; }
-
-/* Top Products List */
-.top-products-list { padding: 8px 0; }
-
-.top-product-item {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 14px 20px;
-    border-bottom: 1px solid #E2E8F0;
-    transition: background 0.15s ease;
-}
-
-.top-product-item:last-child { border-bottom: none; }
-.top-product-item:hover { background: rgba(107, 70, 193, 0.03); }
-
-.rank {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 0.85rem;
-    flex-shrink: 0;
-}
-
-.rank-1 { background: linear-gradient(135deg, #FFD700, #FFA500); color: #7B341E; }
-.rank-2 { background: linear-gradient(135deg, #C0C0C0, #A0A0A0); color: #2D3748; }
-.rank-3 { background: linear-gradient(135deg, #CD7F32, #A0522D); color: #fff; }
-.rank-4, .rank-5 { background: #EDF2F7; color: #4A5568; }
-
-.top-product-item .product-info { flex: 1; min-width: 0; }
-
-.top-product-item .product-info h6 {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: #1A202C;
-    margin-bottom: 2px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.top-product-item .product-info small {
-    font-size: 0.75rem;
-    color: #718096;
-}
-
-.top-product-item .product-revenue {
-    font-weight: 700;
-    font-size: 0.85rem;
-    color: #6B46C1;
-    white-space: nowrap;
-}
-
-/* Quick Actions Grid */
-.quick-actions-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-}
-
-@media (max-width: 768px) {
-    .quick-actions-grid { grid-template-columns: repeat(2, 1fr); }
-}
-
-.quick-action-btn {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    padding: 24px 16px;
-    border-radius: 12px;
-    text-decoration: none;
-    color: #fff;
-    font-weight: 600;
-    font-size: 0.85rem;
-    text-align: center;
-    transition: all 0.3s ease;
-    position: relative;
-    overflow: hidden;
-}
-
-.quick-action-btn i { font-size: 1.75rem; transition: transform 0.3s ease; }
-
-.quick-action-btn:hover {
-    transform: translateY(-5px);
-    color: #fff;
-}
-
-.quick-action-btn:hover i { transform: scale(1.15); }
-
-.quick-action-purple {
-    background: linear-gradient(135deg, #6B46C1, #553C9A);
-    box-shadow: 0 4px 15px rgba(107, 70, 193, 0.3);
-}
-.quick-action-purple:hover { box-shadow: 0 8px 25px rgba(107, 70, 193, 0.4); }
-
-.quick-action-orange {
-    background: linear-gradient(135deg, #ED8936, #DD6B20);
-    box-shadow: 0 4px 15px rgba(237, 137, 54, 0.3);
-}
-.quick-action-orange:hover { box-shadow: 0 8px 25px rgba(237, 137, 54, 0.4); }
-
-.quick-action-cyan {
-    background: linear-gradient(135deg, #00B5D8, #0987A0);
-    box-shadow: 0 4px 15px rgba(0, 181, 216, 0.3);
-}
-.quick-action-cyan:hover { box-shadow: 0 8px 25px rgba(0, 181, 216, 0.4); }
-
-.quick-action-blue {
-    background: linear-gradient(135deg, #4299E1, #3182CE);
-    box-shadow: 0 4px 15px rgba(66, 153, 225, 0.3);
-}
-.quick-action-blue:hover { box-shadow: 0 8px 25px rgba(66, 153, 225, 0.4); }
-
-/* Cyber Table */
-.cyber-table { width: 100%; border-collapse: collapse; }
-
-.cyber-table thead th {
-    background: #F7FAFC;
-    color: #4A5568;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 14px 16px;
-    border-bottom: 2px solid #E2E8F0;
-    white-space: nowrap;
-    text-align: left;
-}
-
-.cyber-table tbody td {
-    padding: 14px 16px;
-    border-bottom: 1px solid #E2E8F0;
-    vertical-align: middle;
-    font-size: 0.875rem;
-}
-
-.cyber-table tbody tr:hover { background: rgba(107, 70, 193, 0.03); }
-.cyber-table tbody tr:last-child td { border-bottom: none; }
-
-.invoice-number {
-    font-family: 'Courier New', monospace;
-    font-weight: 700;
-    color: #6B46C1;
-    font-size: 0.85rem;
-}
-
-.date-cell { display: flex; flex-direction: column; }
-.date-cell .date { font-weight: 600; color: #1A202C; font-size: 0.85rem; }
-.date-cell .time { font-size: 0.75rem; color: #718096; }
-
-.customer-name { font-weight: 600; color: #1A202C; }
-
-.store-badge {
-    display: inline-block;
-    padding: 4px 10px;
-    background: #EDF2F7;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #4A5568;
-}
-
-.amount { font-weight: 700; color: #1A202C; }
-
-.payment-badge {
-    display: inline-block;
-    padding: 5px 12px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: capitalize;
-}
-
-.payment-cash { background: rgba(72, 187, 120, 0.15); color: #2F855A; }
-.payment-card { background: rgba(66, 153, 225, 0.15); color: #2B6CB0; }
-.payment-mobile_money { background: rgba(237, 137, 54, 0.15); color: #C05621; }
-.payment-bank_transfer { background: rgba(107, 70, 193, 0.15); color: #553C9A; }
-.payment-credit { background: rgba(229, 62, 62, 0.15); color: #C53030; }
-
-.btn-action {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    text-decoration: none;
-}
-
-.btn-view { background: rgba(107, 70, 193, 0.1); color: #6B46C1; }
-.btn-view:hover { background: #6B46C1; color: #fff; transform: scale(1.05); }
-
-/* Empty State */
-.empty-state {
-    text-align: center;
-    padding: 40px 20px;
-    color: #718096;
-}
-
-.empty-state i {
-    font-size: 3rem;
-    margin-bottom: 16px;
-    opacity: 0.3;
-    color: #6B46C1;
-}
-
-.empty-state h5 {
-    color: #4A5568;
-    font-weight: 700;
-    margin-bottom: 8px;
-}
-
-.empty-state p {
-    margin: 0;
-    font-size: 0.9rem;
-}
-
-/* User badge */
-.user-badge {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    background: linear-gradient(135deg, #6B46C1, #553C9A);
-    color: #fff;
-    border-radius: 30px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    box-shadow: 0 4px 15px rgba(107, 70, 193, 0.3);
-}
-
-/* Responsive */
-@media (max-width: 991.98px) {
-    .welcome-content { flex-direction: column; align-items: flex-start; }
-    .welcome-text h2 { font-size: 1.5rem; }
-    .welcome-actions { width: 100%; }
-    .welcome-actions .btn { width: 100%; }
-}
-
-@media (max-width: 767.98px) {
-    .stat-card { padding: 20px; }
-    .stat-icon { width: 50px; height: 50px; font-size: 1.25rem; }
-    .stat-value { font-size: 1.25rem; }
-}
-</style>
-
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // ============================================
-    // MY SALES CHART
-    // ============================================
     const chartCanvas = document.getElementById('mySalesChart');
-    
-    if (chartCanvas) {
-        const ctx = chartCanvas.getContext('2d');
-        const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-        gradient.addColorStop(0, 'rgba(107, 70, 193, 0.3)');
-        gradient.addColorStop(1, 'rgba(107, 70, 193, 0.01)');
-        
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: <?php echo json_encode($chart_labels); ?>,
-                datasets: [{
-                    label: 'My Sales',
-                    data: <?php echo json_encode($chart_values); ?>,
-                    backgroundColor: gradient,
-                    borderColor: '#6B46C1',
-                    borderWidth: 3,
-                    tension: 0.4,
-                    fill: true,
-                    pointBackgroundColor: '#ED8936',
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 3,
-                    pointRadius: 6,
-                    pointHoverRadius: 9
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: '#1A202C',
-                        titleColor: '#fff',
-                        bodyColor: '#ED8936',
-                        borderColor: '#6B46C1',
-                        borderWidth: 2,
-                        padding: 12,
-                        cornerRadius: 8,
-                        displayColors: false,
-                        callbacks: {
-                            label: function(context) {
-                                return '💰 UGX ' + context.parsed.y.toLocaleString();
-                            }
+    if (!chartCanvas) return;
+
+    const ctx = chartCanvas.getContext('2d');
+    const gradient = ctx.createLinearGradient(0, 0, 0, 250);
+    gradient.addColorStop(0, 'rgba(107, 70, 193, 0.2)');
+    gradient.addColorStop(1, 'rgba(107, 70, 193, 0.0)');
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: <?php echo json_encode($chart_labels); ?>,
+            datasets: [{
+                label: 'My Sales',
+                data: <?php echo json_encode($chart_values); ?>,
+                backgroundColor: gradient,
+                borderColor: '#6B46C1',
+                borderWidth: 2,
+                tension: 0.4,
+                fill: true,
+                pointBackgroundColor: '#ED8936',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 4,
+                pointHoverRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1A202C',
+                    bodyColor: '#ED8936',
+                    padding: 8,
+                    displayColors: false,
+                    callbacks: {
+                        label: function(context) {
+                            return 'UGX ' + context.parsed.y.toLocaleString();
                         }
                     }
-                },
-                scales: {
-                    x: {
-                        grid: { display: false },
-                        ticks: { color: '#718096', font: { size: 11, weight: '600' } }
-                    },
-                    y: {
-                        beginAtZero: true,
-                        grid: { color: 'rgba(0, 0, 0, 0.05)', drawBorder: false },
-                        ticks: {
-                            color: '#718096',
-                            font: { size: 11 },
-                            callback: function(value) {
-                                if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
-                                if (value >= 1000) return (value / 1000).toFixed(0) + 'K';
-                                return value;
-                            }
+                }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(0, 0, 0, 0.04)' },
+                    ticks: {
+                        font: { size: 10 },
+                        callback: function(value) {
+                            if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+                            if (value >= 1000) return (value / 1000).toFixed(0) + 'K';
+                            return value;
                         }
                     }
                 }
             }
-        });
-    }
-    
-    // ============================================
-    // ANIMATE STAT CARDS
-    // ============================================
-    const statCards = document.querySelectorAll('.stat-card');
-    statCards.forEach((card, index) => {
-        card.style.opacity = '0';
-        card.style.transform = 'translateY(20px)';
-        setTimeout(() => {
-            card.style.transition = 'all 0.5s ease';
-            card.style.opacity = '1';
-            card.style.transform = 'translateY(0)';
-        }, index * 100);
-    });
-    
-    // ============================================
-    // ANIMATE QUICK ACTIONS
-    // ============================================
-    const quickActions = document.querySelectorAll('.quick-action-btn');
-    quickActions.forEach((btn, index) => {
-        btn.style.opacity = '0';
-        btn.style.transform = 'translateY(20px)';
-        setTimeout(() => {
-            btn.style.transition = 'all 0.4s ease';
-            btn.style.opacity = '1';
-            btn.style.transform = 'translateY(0)';
-        }, 500 + index * 50);
+        }
     });
 });
 </script>

@@ -142,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
 
         body {
-            background-image: url('assets/images/login-bg.png');
+            background-image: url('assets/images/login_im.png');
             background-size: cover;
             background-position: center center;
             background-repeat: no-repeat;
@@ -155,6 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             overflow: hidden;
         }
 
+        /* Slight vignette to ensure the translucent card pops */
         body::before {
             content: '';
             position: fixed;
@@ -162,8 +163,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             background: radial-gradient(
                 ellipse at center,
                 rgba(0, 0, 0, 0) 0%,
-                rgba(0, 0, 0, 0.12) 70%,
-                rgba(0, 0, 0, 0.3) 100%
+                rgba(0, 0, 0, 0.2) 60%,
+                rgba(0, 0, 0, 0.5) 100%
             );
             z-index: 0;
             pointer-events: none;
@@ -172,18 +173,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .login-card {
             position: relative;
             z-index: 1;
-            background: rgba(255, 255, 255, 0.72);
-            backdrop-filter: blur(30px) saturate(180%);
-            -webkit-backdrop-filter: blur(30px) saturate(180%);
+            /* --- TRANSLUCENT GLASSMORPHISM --- */
+            background: rgba(255, 255, 255, 0.25); /* Highly translucent */
+            backdrop-filter: blur(16px) saturate(180%);
+            -webkit-backdrop-filter: blur(16px) saturate(180%);
             border-radius: 20px;
             padding: 30px 32px;
             width: 100%;
             max-width: 400px;
-            border: 1px solid rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.4);
             box-shadow:
-                0 20px 60px rgba(0, 0, 0, 0.35),
-                inset 0 1px 0 rgba(255, 255, 255, 0.6);
+                0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.4);
             animation: scaleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            /* Force text to be readable even if background is bright */
+            text-shadow: 0 1px 2px rgba(255,255,255,0.5);
         }
 
         @keyframes scaleIn {
@@ -218,24 +222,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         .login-logo p {
             font-size: 0.8rem;
-            color: var(--cyber-gray-lighter);
+            color: var(--cyber-gray);
             margin: 4px 0 0 0;
+            font-weight: 500;
         }
 
         .alert-error {
-            background: rgba(229, 62, 62, 0.12);
-            border: 1px solid rgba(229, 62, 62, 0.3);
+            background: rgba(229, 62, 62, 0.15);
+            border: 1px solid rgba(229, 62, 62, 0.4);
             border-left: 3px solid var(--cyber-red);
             color: #C53030;
             padding: 10px 12px;
             border-radius: 8px;
             font-size: 0.82rem;
-            font-weight: 500;
+            font-weight: 600;
             display: flex;
             align-items: center;
             gap: 8px;
             margin-bottom: 16px;
             animation: shake 0.4s ease;
+            text-shadow: none;
         }
 
         @keyframes shake {
@@ -251,10 +257,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .form-label {
             display: block;
             font-size: 0.7rem;
-            font-weight: 700;
+            font-weight: 800;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: var(--cyber-gray);
+            color: var(--cyber-dark);
             margin-bottom: 6px;
         }
 
@@ -267,7 +273,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .input-wrapper .input-icon {
             position: absolute;
             left: 15px;
-            color: #A0AEC0;
+            color: var(--cyber-gray);
             font-size: 0.9rem;
             pointer-events: none;
             transition: color 0.2s ease;
@@ -276,36 +282,38 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .input-wrapper input {
             width: 100%;
             padding: 12px 14px 12px 42px;
-            border: 1.5px solid rgba(255, 255, 255, 0.6);
+            border: 1.5px solid rgba(255, 255, 255, 0.5);
             border-radius: 10px;
             font-size: 0.9rem;
-            font-weight: 500;
+            font-weight: 600;
             color: var(--cyber-dark);
-            background: rgba(255, 255, 255, 0.55);
+            /* Make inputs translucent too */
+            background: rgba(255, 255, 255, 0.15);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             transition: all 0.2s ease;
             font-family: inherit;
+            text-shadow: none;
         }
 
-        .input-wrapper input::placeholder { color: #A0AEC0; font-weight: 400; }
+        .input-wrapper input::placeholder { color: rgba(45, 55, 72, 0.6); font-weight: 500; }
 
         .input-wrapper input:focus {
             outline: none;
             border-color: var(--cyber-purple);
-            background: rgba(255, 255, 255, 0.9);
-            box-shadow: 0 0 0 3px rgba(107, 70, 193, 0.15);
+            background: rgba(255, 255, 255, 0.4);
+            box-shadow: 0 0 0 3px rgba(107, 70, 193, 0.25);
         }
 
         .input-wrapper input:focus ~ .input-icon,
-        .input-wrapper:focus-within .input-icon { color: var(--cyber-purple); }
+        .input-wrapper:focus-within .input-icon { color: var(--cyber-purple-dark); }
 
         .toggle-password {
             position: absolute;
             right: 14px;
             background: none;
             border: none;
-            color: #A0AEC0;
+            color: var(--cyber-gray);
             cursor: pointer;
             padding: 4px;
             border-radius: 4px;
@@ -330,8 +338,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             height: 14px;
             margin: 0;
             cursor: pointer;
-            border: 1.5px solid rgba(160, 174, 192, 0.5);
-            background-color: rgba(255, 255, 255, 0.7);
+            border: 1.5px solid rgba(45, 55, 72, 0.5);
+            background-color: rgba(255, 255, 255, 0.3);
         }
 
         .form-check-input:checked {
@@ -339,16 +347,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             border-color: var(--cyber-purple);
         }
 
-        .form-check-label { color: var(--cyber-gray); font-weight: 500; cursor: pointer; user-select: none; }
+        .form-check-label { color: var(--cyber-dark); font-weight: 600; cursor: pointer; user-select: none; }
 
         .forgot-link {
-            color: var(--cyber-purple);
+            color: var(--cyber-purple-dark);
             text-decoration: none;
-            font-weight: 600;
+            font-weight: 700;
             transition: color 0.2s ease;
         }
 
-        .forgot-link:hover { color: var(--cyber-purple-dark); text-decoration: underline; }
+        .forgot-link:hover { color: var(--cyber-purple); text-decoration: underline; }
 
         .btn-row {
             display: grid;
@@ -375,25 +383,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             text-decoration: none;
             white-space: nowrap;
             font-family: inherit;
+            text-shadow: none;
         }
 
         .btn-row .btn-login {
             background: linear-gradient(135deg, var(--cyber-purple) 0%, var(--cyber-purple-dark) 100%);
             color: #fff;
-            box-shadow: 0 6px 18px rgba(107, 70, 193, 0.35);
+            box-shadow: 0 6px 18px rgba(107, 70, 193, 0.4);
         }
 
         .btn-row .btn-login:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(107, 70, 193, 0.5);
+            box-shadow: 0 10px 25px rgba(107, 70, 193, 0.6);
             background: linear-gradient(135deg, var(--cyber-purple-dark) 0%, var(--cyber-purple) 100%);
         }
 
         .btn-row .btn-login:disabled { opacity: 0.7; cursor: not-allowed; }
 
         .btn-row .btn-register {
-            background: rgba(255, 255, 255, 0.6);
-            color: var(--cyber-purple);
+            background: rgba(255, 255, 255, 0.2);
+            color: var(--cyber-purple-dark);
             border: 1.5px solid var(--cyber-purple);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
@@ -403,7 +412,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             background: var(--cyber-purple);
             color: #fff;
             transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(107, 70, 193, 0.35);
+            box-shadow: 0 10px 25px rgba(107, 70, 193, 0.4);
         }
 
         .btn-row .btn-login i,
@@ -413,9 +422,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             text-align: center;
             margin-top: 18px;
             padding-top: 14px;
-            border-top: 1px solid rgba(226, 232, 240, 0.6);
+            border-top: 1px solid rgba(255, 255, 255, 0.3);
             font-size: 0.7rem;
-            color: #A0AEC0;
+            color: var(--cyber-dark);
+            font-weight: 600;
             letter-spacing: 0.3px;
         }
 

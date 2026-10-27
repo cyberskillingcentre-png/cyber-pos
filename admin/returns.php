@@ -70,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 ]);
                 $return_id = (int) $conn->lastInsertId();
 
-                // Insert return items (note: column name is `condition`, not `conditio`)
+                // Insert return items
                 $stmt = $conn->prepare("
                     INSERT INTO return_items 
                     (return_id, sale_item_id, product_id, quantity, unit_price,
@@ -127,10 +127,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $refund_status = 'pending';
                 }
 
-                // ------------------------------------------------------------
-                // FIX: update `status` AND `refund_status` separately.
-                // Do NOT write to the same column twice in one statement.
-                // ------------------------------------------------------------
                 $stmt = $conn->prepare("
                     UPDATE returns 
                     SET status = 'approved',
@@ -167,8 +163,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         } else {
                             $stmt = $conn->prepare("
                                 INSERT INTO store_inventory 
-                                (store_id, product_id, batch_number, quantity, initial_quantity)
-                                VALUES (?, ?, ?, ?, ?)
+                                (store_id, product_id, batch_number, quantity, initial_quantity, status)
+                                VALUES (?, ?, ?, ?, ?, 'good')
                             ");
                             $stmt->execute([
                                 $return['store_id'],
@@ -274,82 +270,96 @@ $sales = $stmt->fetchAll();
 
         <div class="card">
             <div class="card-header d-flex justify-content-between">
-                <span><i class="fas fa-list me-2"></i>Product Returns</span>
+                <span><i class="fas fa-list me-2"></i>Product Returns (<?php echo count($returns); ?>)</span>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addReturnModal">
                     <i class="fas fa-plus me-1"></i>New Return
                 </button>
             </div>
             <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table datatable table-hover">
-                        <thead>
-                            <tr>
-                                <th>Return #</th>
-                                <th>Date</th>
-                                <th>Invoice #</th>
-                                <th>Customer</th>
-                                <th>Store</th>
-                                <th>Amount</th>
-                                <th>Refunded</th>
-                                <th>Refund Status</th>
-                                <th>Status</th>
-                                <th>Processed By</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($returns as $return): ?>
-                            <tr>
-                                <td><strong><?php echo htmlspecialchars($return['return_number']); ?></strong></td>
-                                <td><?php echo date('d/m/Y H:i', strtotime($return['return_date'])); ?></td>
-                                <td><?php echo htmlspecialchars($return['invoice_number'] ?? 'N/A'); ?></td>
-                                <td><?php echo htmlspecialchars($return['customer_name'] ?? 'Walk-in'); ?></td>
-                                <td><?php echo htmlspecialchars($return['store_name'] ?? '-'); ?></td>
-                                <td>UGX <?php echo number_format($return['total_amount'], 2); ?></td>
-                                <td>UGX <?php echo number_format($return['refund_amount'] ?? 0, 2); ?></td>
-                                <td>
-                                    <?php 
-                                    $refund_status = $return['refund_status'] ?? 'pending';
-                                    if ($refund_status == 'completed'): ?>
-                                        <span class="badge bg-success">Completed</span>
-                                    <?php elseif ($refund_status == 'partial'): ?>
-                                        <span class="badge bg-warning">Partial</span>
-                                    <?php else: ?>
-                                        <span class="badge bg-secondary">Pending</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($return['status'] == 'approved'): ?>
-                                        <span class="badge bg-success">Approved</span>
-                                    <?php elseif ($return['status'] == 'pending'): ?>
-                                        <span class="badge bg-warning">Pending</span>
-                                    <?php elseif ($return['status'] == 'rejected'): ?>
-                                        <span class="badge bg-danger">Rejected</span>
-                                    <?php else: ?>
-                                        <span class="badge bg-info">Completed</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td><?php echo htmlspecialchars($return['processed_by_name'] ?? '-'); ?></td>
-                                <td>
-                                    <?php if ($return['status'] == 'pending'): ?>
-                                    <button class="btn btn-sm btn-success approve-btn"
-                                            data-id="<?php echo $return['return_id']; ?>"
-                                            data-amount="<?php echo $return['total_amount']; ?>"
-                                            title="Approve Return">
-                                        <i class="fas fa-check"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-danger reject-btn"
-                                            data-id="<?php echo $return['return_id']; ?>"
-                                            title="Reject Return">
-                                        <i class="fas fa-times"></i>
-                                    </button>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                
+                <?php if (empty($returns)): ?>
+                    <!-- Empty State -->
+                    <div class="text-center py-5">
+                        <i class="fas fa-undo fa-4x text-muted mb-3" style="opacity:0.2;"></i>
+                        <h4 class="text-muted mb-2">No Returns Found</h4>
+                        <p class="text-muted mb-4" style="font-size:0.9rem;">There are no product returns recorded yet.</p>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addReturnModal">
+                            <i class="fas fa-plus me-1"></i>Create Your First Return
+                        </button>
+                    </div>
+                <?php else: ?>
+                    <!-- Returns Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="returnsTable">
+                            <thead>
+                                <tr>
+                                    <th>Return #</th>
+                                    <th>Date</th>
+                                    <th>Invoice #</th>
+                                    <th>Customer</th>
+                                    <th>Store</th>
+                                    <th>Amount</th>
+                                    <th>Refunded</th>
+                                    <th>Refund Status</th>
+                                    <th>Status</th>
+                                    <th>Processed By</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($returns as $return): ?>
+                                <tr>
+                                    <td><strong><?php echo htmlspecialchars($return['return_number']); ?></strong></td>
+                                    <td><?php echo date('d/m/Y H:i', strtotime($return['return_date'])); ?></td>
+                                    <td><?php echo htmlspecialchars($return['invoice_number'] ?? 'N/A'); ?></td>
+                                    <td><?php echo htmlspecialchars($return['customer_name'] ?? 'Walk-in'); ?></td>
+                                    <td><?php echo htmlspecialchars($return['store_name'] ?? '-'); ?></td>
+                                    <td>UGX <?php echo number_format($return['total_amount'], 2); ?></td>
+                                    <td>UGX <?php echo number_format($return['refund_amount'] ?? 0, 2); ?></td>
+                                    <td>
+                                        <?php 
+                                        $refund_status = $return['refund_status'] ?? 'pending';
+                                        if ($refund_status == 'completed'): ?>
+                                            <span class="badge bg-success">Completed</span>
+                                        <?php elseif ($refund_status == 'partial'): ?>
+                                            <span class="badge bg-warning text-dark">Partial</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-secondary">Pending</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($return['status'] == 'approved'): ?>
+                                            <span class="badge bg-success">Approved</span>
+                                        <?php elseif ($return['status'] == 'pending'): ?>
+                                            <span class="badge bg-warning text-dark">Pending</span>
+                                        <?php elseif ($return['status'] == 'rejected'): ?>
+                                            <span class="badge bg-danger">Rejected</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-info">Completed</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><?php echo htmlspecialchars($return['processed_by_name'] ?? '-'); ?></td>
+                                    <td>
+                                        <?php if ($return['status'] == 'pending'): ?>
+                                        <button class="btn btn-sm btn-success approve-btn"
+                                                data-id="<?php echo $return['return_id']; ?>"
+                                                data-amount="<?php echo $return['total_amount']; ?>"
+                                                title="Approve Return">
+                                            <i class="fas fa-check"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-danger reject-btn"
+                                                data-id="<?php echo $return['return_id']; ?>"
+                                                title="Reject Return">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -480,7 +490,7 @@ $sales = $stmt->fetchAll();
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST">
-                                <?php echo csrf_field(); ?>
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="return_id" id="approve_return_id">
                 <div class="modal-body">
                     <div class="mb-3">
@@ -552,6 +562,37 @@ $sales = $stmt->fetchAll();
 
 <script>
 jQuery(document).ready(function($) {
+    // ============================================
+    // SAFE DATATABLE INIT
+    // ============================================
+    setTimeout(function() {
+        var tableSelector = '#returnsTable';
+        var $table = $(tableSelector);
+        
+        if ($table.length > 0) {
+            if (!$.fn.DataTable.isDataTable(tableSelector)) {
+                $table.DataTable({
+                    pageLength: 25,
+                    responsive: false,
+                    order: [[1, 'desc']],
+                    language: {
+                        search: "", searchPlaceholder: "Search returns...",
+                        lengthMenu: "Show _MENU_",
+                        info: "_START_–_END_ of _TOTAL_",
+                        infoEmpty: "No entries",
+                        infoFiltered: "(filtered from _MAX_)",
+                        paginate: {
+                            first: '<i class="fas fa-angle-double-left"></i>',
+                            last: '<i class="fas fa-angle-double-right"></i>',
+                            next: '<i class="fas fa-angle-right"></i>',
+                            previous: '<i class="fas fa-angle-left"></i>'
+                        }
+                    }
+                });
+            }
+        }
+    }, 200);
+
     let saleItems = [];
 
     // ============================================

@@ -14,7 +14,7 @@ if (session_status() === PHP_SESSION_NONE) {
 // Database Credentials - ALWAYS DEFINED
 define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
-define('DB_PASS', 'waniaye@Tech1');
+define('DB_PASS', '');
 
 
 // ============================================

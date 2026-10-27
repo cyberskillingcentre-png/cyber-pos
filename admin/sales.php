@@ -184,7 +184,7 @@ $alert = get_alert();
                 <div class="stat-card orange">
                     <div class="icon"><i class="fas fa-money-bill-wave"></i></div>
                     <div>
-                        <h3>UGX <?php echo format_currency($summary['total']); ?></h3>
+                        <h3>UGX <?php echo number_format($summary['total'], 0); ?></h3>
                         <p>Total Revenue</p>
                     </div>
                 </div>
@@ -193,7 +193,7 @@ $alert = get_alert();
                 <div class="stat-card <?php echo $credit_summary['outstanding'] > 0 ? 'red' : 'green'; ?>">
                     <div class="icon"><i class="fas fa-file-invoice-dollar"></i></div>
                     <div>
-                        <h3>UGX <?php echo format_currency($credit_summary['outstanding']); ?></h3>
+                        <h3>UGX <?php echo number_format($credit_summary['outstanding'], 0); ?></h3>
                         <p>Credit Outstanding (<?php echo $credit_summary['count']; ?>)</p>
                     </div>
                 </div>
@@ -213,112 +213,161 @@ $alert = get_alert();
                 <?php endif; ?>
             </div>
             <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table datatable table-hover" id="salesTable">
-                        <thead>
-                            <tr>
-                                <th>Invoice #</th>
-                                <th>Date</th>
-                                <th>Customer</th>
-                                <th>Store</th>
-                                <th>Sale Type</th>
-                                <th>Payment Method</th>
-                                <th class="text-end">Total Amount</th>
-                                <th class="text-end">Balance</th>
-                                <th>Payment Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($sales as $sale): 
-                                $balance = floatval($sale['amount_due'] ?? 0);
-                                $is_credit = ($sale['payment_method'] === 'credit');
-                            ?>
-                            <tr>
-                                <td><strong><?php echo htmlspecialchars($sale['invoice_number']); ?></strong></td>
-                                <td>
-                                    <div><?php echo date('d/m/Y', strtotime($sale['sale_date'])); ?></div>
-                                    <small class="text-muted"><?php echo date('H:i', strtotime($sale['sale_date'])); ?></small>
-                                </td>
-                                <td>
-                                    <?php if ($sale['customer_name']): ?>
-                                        <strong><?php echo htmlspecialchars($sale['customer_name']); ?></strong>
-                                    <?php else: ?>
-                                        <span class="text-muted">Walk-in</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td><?php echo htmlspecialchars($sale['store_name'] ?? '-'); ?></td>
-                                <td>
-                                    <?php if ($sale['sale_type'] === 'credit'): ?>
-                                        <span class="badge bg-danger"><i class="fas fa-credit-card me-1"></i>Credit</span>
-                                    <?php else: ?>
-                                        <span class="badge bg-success"><i class="fas fa-money-bill-wave me-1"></i>Cash</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <span class="badge bg-info">
-                                        <?php echo ucwords(str_replace('_', ' ', $sale['payment_method'])); ?>
-                                    </span>
-                                </td>
-                                <td class="text-end">
-                                    <strong>UGX <?php echo number_format($sale['total_amount'], 2); ?></strong>
-                                </td>
-                                <td class="text-end">
-                                    <?php if ($is_credit): ?>
-                                        <strong class="<?php echo $balance > 0 ? 'text-danger' : 'text-success'; ?>">
-                                            UGX <?php echo number_format($balance, 2); ?>
-                                        </strong>
-                                    <?php else: ?>
-                                        <span class="text-muted">—</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($sale['payment_status'] === 'paid'): ?>
-                                        <span class="badge bg-success">Paid</span>
-                                    <?php elseif ($sale['payment_status'] === 'partial'): ?>
-                                        <span class="badge bg-warning text-dark">Partial</span>
-                                    <?php elseif ($sale['payment_status'] === 'unpaid'): ?>
-                                        <span class="badge bg-danger">Unpaid</span>
-                                    <?php else: ?>
-                                        <span class="badge bg-secondary"><?php echo ucfirst($sale['payment_status']); ?></span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="text-nowrap">
-                                    <!-- View -->
-                                    <a href="view-sale.php?id=<?php echo (int)$sale['sale_id']; ?>"
-                                       class="btn btn-sm btn-info" title="View Sale">
-                                        <i class="fas fa-eye"></i>
-                                    </a>
-
-                                    <!-- Record Payment (only for credit sales with balance) -->
-                                    <?php if ($is_credit && $balance > 0): ?>
-                                    <a href="record_credit_payment.php?id=<?php echo (int)$sale['sale_id']; ?>"
-                                       class="btn btn-sm btn-warning" title="Record Payment">
-                                        <i class="fas fa-money-bill-wave"></i>
-                                    </a>
-                                    <?php endif; ?>
-
-                                    <!-- Invoice / Receipt -->
-                                    <?php if ($is_credit): ?>
-                                        <a href="credit-invoice.php?id=<?php echo (int)$sale['sale_id']; ?>"
-                                           class="btn btn-sm btn-danger" target="_blank" title="Credit Invoice">
-                                            <i class="fas fa-file-invoice-dollar"></i>
+                
+                <?php if (empty($sales)): ?>
+                    <!-- Empty State -->
+                    <div class="text-center py-5">
+                        <i class="fas fa-receipt fa-4x text-muted mb-3" style="opacity:0.2;"></i>
+                        <h4 class="text-muted mb-2">No Sales Found</h4>
+                        <p class="text-muted mb-0" style="font-size:0.9rem;">There are no sales recorded for the selected date range or filters.</p>
+                        <a href="pos.php" class="btn btn-primary mt-3">
+                            <i class="fas fa-cash-register me-1"></i>Make a New Sale
+                        </a>
+                    </div>
+                <?php else: ?>
+                    <!-- Sales Data Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="salesTable">
+                            <thead>
+                                <tr>
+                                    <th>Invoice #</th>
+                                    <th>Date</th>
+                                    <th>Customer</th>
+                                    <th>Store</th>
+                                    <th>Sale Type</th>
+                                    <th>Payment Method</th>
+                                    <th class="text-end">Total Amount</th>
+                                    <th class="text-end">Balance</th>
+                                    <th>Payment Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($sales as $sale): 
+                                    $balance = floatval($sale['amount_due'] ?? 0);
+                                    $is_credit = ($sale['payment_method'] === 'credit');
+                                ?>
+                                <tr>
+                                    <td><strong><?php echo htmlspecialchars($sale['invoice_number']); ?></strong></td>
+                                    <td>
+                                        <div><?php echo date('d/m/Y', strtotime($sale['sale_date'])); ?></div>
+                                        <small class="text-muted"><?php echo date('H:i', strtotime($sale['sale_date'])); ?></small>
+                                    </td>
+                                    <td>
+                                        <?php if ($sale['customer_name']): ?>
+                                            <strong><?php echo htmlspecialchars($sale['customer_name']); ?></strong>
+                                        <?php else: ?>
+                                            <span class="text-muted">Walk-in</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><?php echo htmlspecialchars($sale['store_name'] ?? '-'); ?></td>
+                                    <td>
+                                        <?php if ($sale['sale_type'] === 'credit'): ?>
+                                            <span class="badge bg-danger"><i class="fas fa-credit-card me-1"></i>Credit</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-success"><i class="fas fa-money-bill-wave me-1"></i>Cash</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info">
+                                            <?php echo ucwords(str_replace('_', ' ', $sale['payment_method'])); ?>
+                                        </span>
+                                    </td>
+                                    <td class="text-end">
+                                        <strong>UGX <?php echo number_format($sale['total_amount'], 0); ?></strong>
+                                    </td>
+                                    <td class="text-end">
+                                        <?php if ($is_credit): ?>
+                                            <strong class="<?php echo $balance > 0 ? 'text-danger' : 'text-success'; ?>">
+                                                UGX <?php echo number_format($balance, 0); ?>
+                                            </strong>
+                                        <?php else: ?>
+                                            <span class="text-muted">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($sale['payment_status'] === 'paid'): ?>
+                                            <span class="badge bg-success">Paid</span>
+                                        <?php elseif ($sale['payment_status'] === 'partial'): ?>
+                                            <span class="badge bg-warning text-dark">Partial</span>
+                                        <?php elseif ($sale['payment_status'] === 'unpaid'): ?>
+                                            <span class="badge bg-danger">Unpaid</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-secondary"><?php echo ucfirst($sale['payment_status']); ?></span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="text-nowrap">
+                                        <!-- View -->
+                                        <a href="view-sale.php?id=<?php echo (int)$sale['sale_id']; ?>"
+                                           class="btn btn-sm btn-info" title="View Sale">
+                                            <i class="fas fa-eye"></i>
                                         </a>
-                                    <?php else: ?>
-                                        <a href="receipt.php?id=<?php echo (int)$sale['sale_id']; ?>"
-                                           class="btn btn-sm btn-primary" target="_blank" title="Receipt">
-                                            <i class="fas fa-receipt"></i>
+
+                                        <!-- Record Payment (only for credit sales with balance) -->
+                                        <?php if ($is_credit && $balance > 0): ?>
+                                        <a href="record_credit_payment.php?id=<?php echo (int)$sale['sale_id']; ?>"
+                                           class="btn btn-sm btn-warning" title="Record Payment">
+                                            <i class="fas fa-money-bill-wave"></i>
                                         </a>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                        <?php endif; ?>
+
+                                        <!-- Invoice / Receipt -->
+                                        <?php if ($is_credit): ?>
+                                            <a href="credit-invoice.php?id=<?php echo (int)$sale['sale_id']; ?>"
+                                               class="btn btn-sm btn-danger" target="_blank" title="Credit Invoice">
+                                                <i class="fas fa-file-invoice-dollar"></i>
+                                            </a>
+                                        <?php else: ?>
+                                            <a href="receipt.php?id=<?php echo (int)$sale['sale_id']; ?>"
+                                               class="btn btn-sm btn-primary" target="_blank" title="Receipt">
+                                                <i class="fas fa-receipt"></i>
+                                            </a>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
 </div>
 
 <?php include '../includes/footer.php'; ?>
+
+<script>
+jQuery(document).ready(function($) {
+    // ============================================
+    // SAFE DATATABLE INIT (Prevents reinitialization error)
+    // ============================================
+    setTimeout(function() {
+        var tableSelector = '#salesTable';
+        var $table = $(tableSelector);
+        
+        if ($table.length > 0) {
+            if (!$.fn.DataTable.isDataTable(tableSelector)) {
+                $table.DataTable({
+                    pageLength: 25,
+                    responsive: false,
+                    order: [[1, 'desc']], // Sort by Date descending
+                    language: {
+                        search: "", searchPlaceholder: "Search sales...",
+                        lengthMenu: "Show _MENU_",
+                        info: "_START_–_END_ of _TOTAL_",
+                        infoEmpty: "No entries",
+                        infoFiltered: "(filtered from _MAX_)",
+                        paginate: {
+                            first: '<i class="fas fa-angle-double-left"></i>',
+                            last: '<i class="fas fa-angle-double-right"></i>',
+                            next: '<i class="fas fa-angle-right"></i>',
+                            previous: '<i class="fas fa-angle-left"></i>'
+                        }
+                    }
+                });
+            }
+        }
+    }, 200);
+});
+</script>

@@ -87,61 +87,74 @@ $categories = $stmt->fetchAll();
         
         <div class="card">
             <div class="card-header d-flex justify-content-between">
-                <span><i class="fas fa-list me-2"></i>All Categories</span>
+                <span><i class="fas fa-list me-2"></i>All Categories (<?php echo count($categories); ?>)</span>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCategoryModal">
                     <i class="fas fa-plus me-1"></i>Add Category
                 </button>
             </div>
             <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table datatable table-hover">
-                        <thead>
-                            <tr>
-                                <th>Code</th>
-                                <th>Category Name</th>
-                                <th>Description</th>
-                                <th>Products</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($categories as $category): ?>
-                            <tr>
-                                <td><?php echo $category['category_code']; ?></td>
-                                <td><strong><?php echo $category['category_name']; ?></strong></td>
-                                <td><?php echo $category['description']; ?></td>
-                                <td>
-                                    <span class="badge bg-info"><?php echo $category['product_count']; ?> products</span>
-                                </td>
-                                <td>
-                                    <span class="badge bg-success">Active</span>
-                                </td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary edit-btn" 
-                                            data-id="<?php echo $category['category_id']; ?>"
-                                            data-name="<?php echo htmlspecialchars($category['category_name']); ?>"
-                                            data-code="<?php echo $category['category_code']; ?>"
-                                            data-description="<?php echo htmlspecialchars($category['description']); ?>"
-                                            title="Edit">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <form method="POST" style="display:inline;">
-                                        <?php echo csrf_field(); ?>
-                                        <input type="hidden" name="category_id" value="<?php echo $category['category_id']; ?>">
-                                        <input type="hidden" name="action" value="delete">
-                                        <button type="submit" class="btn btn-sm btn-danger" 
-                                                onclick="return confirm('Delete this category? (Only if no products assigned)');" 
-                                                title="Delete">
-                                            <i class="fas fa-trash"></i>
+                <?php if (empty($categories)): ?>
+                    <!-- Empty State -->
+                    <div class="text-center py-5">
+                        <i class="fas fa-tags fa-4x text-muted mb-3" style="opacity:0.2;"></i>
+                        <h4 class="text-muted mb-2">No Categories Added Yet</h4>
+                        <p class="text-muted mb-4" style="font-size:0.9rem;">You haven't created any product categories. Add one to help organize your inventory.</p>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCategoryModal">
+                            <i class="fas fa-plus me-1"></i>Add Your First Category
+                        </button>
+                    </div>
+                <?php else: ?>
+                    <!-- Categories Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="categoriesTable">
+                            <thead>
+                                <tr>
+                                    <th>Code</th>
+                                    <th>Category Name</th>
+                                    <th>Description</th>
+                                    <th>Products</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($categories as $category): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($category['category_code']); ?></td>
+                                    <td><strong><?php echo htmlspecialchars($category['category_name']); ?></strong></td>
+                                    <td><?php echo htmlspecialchars($category['description'] ?? '-'); ?></td>
+                                    <td>
+                                        <span class="badge bg-info"><?php echo $category['product_count']; ?> products</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-success">Active</span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-primary edit-btn" 
+                                                data-id="<?php echo $category['category_id']; ?>"
+                                                data-name="<?php echo htmlspecialchars($category['category_name']); ?>"
+                                                data-code="<?php echo htmlspecialchars($category['category_code']); ?>"
+                                                data-description="<?php echo htmlspecialchars($category['description'] ?? ''); ?>"
+                                                title="Edit">
+                                            <i class="fas fa-edit"></i>
                                         </button>
-                                    </form>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                        <form method="POST" style="display:inline;">
+                                            <?php echo csrf_field(); ?>
+                                            <input type="hidden" name="category_id" value="<?php echo $category['category_id']; ?>">
+                                            <input type="hidden" name="action" value="delete">
+                                            <button type="submit" class="btn btn-sm btn-danger" 
+                                                    onclick="return confirm('Delete this category? (Only if no products assigned)');" 
+                                                    title="Delete">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -227,18 +240,57 @@ $categories = $stmt->fetchAll();
 
 <script>
 jQuery(document).ready(function($) {
-    // Handle edit button click
-    $('.edit-btn').on('click', function() {
-        const btn = $(this);
+    // ==============================================================
+    // BULLETPROOF DATATABLE INITIALIZATION
+    // Checks if the table is already a DataTable before initializing
+    // ==============================================================
+    setTimeout(function() {
+        var tableSelector = '#categoriesTable';
+        var $table = $(tableSelector);
         
-        // Populate edit modal with category data
-        $('#edit_category_id').val(btn.data('id'));
-        $('#edit_category_code').val(btn.data('code'));
-        $('#edit_category_name').val(btn.data('name'));
-        $('#edit_description').val(btn.data('description'));
-        
-        // Show the modal
-        $('#editCategoryModal').modal('show');
-    });
+        // Only proceed if the table actually exists on the page
+        if ($table.length > 0) {
+            
+            // Check if DataTable is already initialized on this table
+            if ($.fn.DataTable.isDataTable(tableSelector)) {
+                // It's already initialized! Do nothing.
+                console.log('DataTable already initialized, skipping...');
+            } else {
+                // It's NOT initialized. Safe to initialize it now.
+                $table.DataTable({
+                    pageLength: 25,
+                    responsive: false,
+                    order: [],
+                    language: {
+                        search: "", searchPlaceholder: "Search categories...",
+                        lengthMenu: "Show _MENU_",
+                        info: "_START_–_END_ of _TOTAL_",
+                        infoEmpty: "No entries",
+                        infoFiltered: "(filtered from _MAX_)",
+                        paginate: {
+                            first: '<i class="fas fa-angle-double-left"></i>',
+                            last: '<i class="fas fa-angle-double-right"></i>',
+                            next: '<i class="fas fa-angle-right"></i>',
+                            previous: '<i class="fas fa-angle-left"></i>'
+                        }
+                    }
+                });
+            }
+        }
+
+        // Handle edit button click
+        $('.edit-btn').on('click', function() {
+            const btn = $(this);
+            
+            // Populate edit modal with category data
+            $('#edit_category_id').val(btn.data('id'));
+            $('#edit_category_code').val(btn.data('code'));
+            $('#edit_category_name').val(btn.data('name'));
+            $('#edit_description').val(btn.data('description'));
+            
+            // Show the modal
+            $('#editCategoryModal').modal('show');
+        });
+    }, 200); // 200ms delay ensures the global footer script runs FIRST
 });
 </script>

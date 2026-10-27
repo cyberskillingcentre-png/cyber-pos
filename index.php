@@ -132,14 +132,14 @@ require_once 'master_config.php';
            HERO SECTION
            ============================================ */
         .hero-section {
-            background-image: url('assets/images/login-bg.png');
+            background-image: url('assets/images/login_im.png');
             background-size: cover;
             background-position: center center;
             background-repeat: no-repeat;
             background-attachment: fixed;
-            padding: 70px 0;
+            padding: 60px 0;
             position: relative;
-            min-height: calc(100vh - 70px);
+            min-height: calc(90vh - 60px);
             display: flex;
             align-items: center;
             overflow: hidden;

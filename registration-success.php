@@ -48,32 +48,30 @@ if (!$org) {
             --cyber-red: #E53E3E;
             --cyber-dark: #1A202C;
             --cyber-gray: #2D3748;
-            --cyber-gray-lighter: #718096;
-            --cyber-border: #E2E8F0;
+            --cyber-gray-lighter: #4A5568;
         }
         
         * { box-sizing: border-box; margin: 0; padding: 0; }
         
         html, body {
             width: 100%;
-            min-height: 100vh;
+            height: 100%; /* Changed to 100% to prevent page scrolling */
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow: hidden; /* Forced no scroll */
         }
         
         body {
-            background-image: url('assets/images/login-bg.png');
+            background-image: url('assets/images/login_im.png');
             background-size: cover;
             background-position: center center;
             background-repeat: no-repeat;
-            background-attachment: fixed;
             
             display: flex;
             align-items: center;
             justify-content: center;
             
-            padding: 20px;
+            padding: 10px;
             position: relative;
-            overflow-x: hidden;
         }
         
         /* Vignette overlay */
@@ -85,38 +83,38 @@ if (!$org) {
                 ellipse at center,
                 rgba(0, 0, 0, 0) 0%,
                 rgba(0, 0, 0, 0.15) 60%,
-                rgba(0, 0, 0, 0.4) 100%
+                rgba(0, 0, 0, 0.45) 100%
             );
             z-index: 0;
             pointer-events: none;
         }
         
         /* ============================================
-           SUCCESS CARD - GLASS
+           SUCCESS CARD - COMPACT FITTING
            ============================================ */
         .success-card {
             position: relative;
             z-index: 1;
             
-            background: rgba(255, 255, 255, 0.78);
-            backdrop-filter: blur(30px) saturate(180%);
-            -webkit-backdrop-filter: blur(30px) saturate(180%);
+            background: rgba(255, 255, 255, 0.75);
+            backdrop-filter: blur(16px) saturate(180%);
+            -webkit-backdrop-filter: blur(16px) saturate(180%);
             
-            border-radius: 24px;
-            padding: 40px 44px;
+            border-radius: 16px;
+            padding: 24px 30px;
             width: 100%;
-            max-width: 620px;
+            max-width: 720px; /* Narrower to fit comfortably */
             
-            border: 1px solid rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.7);
             box-shadow: 
-                0 25px 70px rgba(0, 0, 0, 0.45),
-                inset 0 1px 0 rgba(255, 255, 255, 0.6);
+                0 20px 50px rgba(0, 0, 0, 0.35),
+                inset 0 1px 0 rgba(255, 255, 255, 0.8);
             
-            animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            animation: scaleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
         }
         
         @keyframes scaleIn {
-            from { opacity: 0; transform: scale(0.92) translateY(20px); }
+            from { opacity: 0; transform: scale(0.95) translateY(10px); }
             to { opacity: 1; transform: scale(1) translateY(0); }
         }
         
@@ -126,27 +124,26 @@ if (!$org) {
         .success-icon-wrap {
             display: flex;
             justify-content: center;
-            margin-bottom: 24px;
+            margin-bottom: 12px;
             position: relative;
         }
         
         .success-icon {
-            width: 90px;
-            height: 90px;
+            width: 60px;
+            height: 60px;
             background: linear-gradient(135deg, var(--cyber-green), var(--cyber-green-dark));
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             color: #fff;
-            font-size: 2.5rem;
-            box-shadow: 0 15px 40px rgba(72, 187, 120, 0.5);
-            animation: popIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both;
+            font-size: 1.6rem;
+            box-shadow: 0 10px 25px rgba(72, 187, 120, 0.4);
+            animation: popIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
             position: relative;
             z-index: 2;
         }
         
-        /* Pulsing rings around icon */
         .success-icon::before,
         .success-icon::after {
             content: '';
@@ -157,9 +154,7 @@ if (!$org) {
             animation: pulse-ring 2s ease-out infinite;
         }
         
-        .success-icon::after {
-            animation-delay: 1s;
-        }
+        .success-icon::after { animation-delay: 1s; }
         
         @keyframes popIn {
             from { transform: scale(0); }
@@ -167,14 +162,8 @@ if (!$org) {
         }
         
         @keyframes pulse-ring {
-            0% {
-                transform: scale(1);
-                opacity: 1;
-            }
-            100% {
-                transform: scale(1.8);
-                opacity: 0;
-            }
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(1.6); opacity: 0; }
         }
         
         /* ============================================
@@ -182,36 +171,42 @@ if (!$org) {
            ============================================ */
         .success-header {
             text-align: center;
-            margin-bottom: 28px;
+            margin-bottom: 16px;
         }
         
         .success-header h1 {
-            font-size: 1.65rem;
+            font-size: 1.3rem;
             font-weight: 800;
             color: var(--cyber-dark);
-            margin-bottom: 8px;
-            letter-spacing: -0.5px;
+            margin-bottom: 4px;
         }
         
         .success-header p {
-            font-size: 0.9rem;
+            font-size: 0.8rem;
             color: var(--cyber-gray-lighter);
-            line-height: 1.6;
             margin: 0;
-            max-width: 400px;
-            margin: 0 auto;
         }
         
         .success-header .org-name {
             display: inline-block;
             background: linear-gradient(135deg, var(--cyber-purple), var(--cyber-purple-dark));
             color: #fff;
-            padding: 4px 12px;
-            border-radius: 12px;
+            padding: 3px 10px;
+            border-radius: 8px;
             font-weight: 700;
-            font-size: 0.82rem;
-            margin-bottom: 10px;
-            box-shadow: 0 4px 12px rgba(107, 70, 193, 0.3);
+            font-size: 0.75rem;
+            margin-bottom: 6px;
+            box-shadow: 0 2px 8px rgba(107, 70, 193, 0.3);
+        }
+        
+        /* ============================================
+           TWO-COLUMN CONTENT LAYOUT
+           ============================================ */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
         }
         
         /* ============================================
@@ -222,138 +217,116 @@ if (!$org) {
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             
-            border-radius: 16px;
-            padding: 20px;
-            margin-bottom: 20px;
-            
-            border: 1px solid rgba(255, 255, 255, 0.7);
-            border-left: 4px solid var(--cyber-purple);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            border-radius: 12px;
+            padding: 14px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            border-left: 3px solid var(--cyber-purple);
         }
         
         .credentials-box .box-title {
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-size: 0.8rem;
+            gap: 8px;
+            font-size: 0.7rem;
             font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
             color: var(--cyber-purple);
-            margin-bottom: 16px;
+            margin-bottom: 10px;
         }
         
         .credentials-box .box-title i {
             color: var(--cyber-orange);
-            font-size: 0.95rem;
         }
         
         .cred-row {
             display: flex;
             align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px dashed rgba(226, 232, 240, 0.7);
+            padding: 6px 0;
+            border-bottom: 1px dashed rgba(226, 232, 240, 0.8);
         }
         
-        .cred-row:last-child {
-            border-bottom: none;
-            padding-bottom: 0;
-        }
-        
-        .cred-row:first-of-type {
-            padding-top: 0;
-        }
+        .cred-row:last-child { border-bottom: none; padding-bottom: 0; }
+        .cred-row:first-of-type { padding-top: 0; }
         
         .cred-label {
-            flex: 0 0 130px;
-            font-size: 0.78rem;
+            flex: 0 0 90px;
+            font-size: 0.7rem;
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
             color: var(--cyber-gray-lighter);
         }
         
         .cred-value {
             flex: 1;
-            font-size: 0.9rem;
+            font-size: 0.82rem;
             color: var(--cyber-dark);
             font-weight: 600;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             flex-wrap: wrap;
         }
         
         .cred-value code {
             background: rgba(107, 70, 193, 0.1);
             color: var(--cyber-purple);
-            padding: 4px 10px;
-            border-radius: 6px;
+            padding: 2px 8px;
+            border-radius: 4px;
             font-family: 'Courier New', monospace;
-            font-size: 0.88rem;
+            font-size: 0.8rem;
             font-weight: 700;
+            cursor: pointer;
         }
         
         .cred-value .badge-trial {
-            background: linear-gradient(135deg, var(--cyber-orange), var(--cyber-orange-dark));
+            background: var(--cyber-orange);
             color: #fff;
-            padding: 3px 10px;
-            border-radius: 10px;
-            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.65rem;
             font-weight: 700;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-        }
-        
-        .cred-value .days-left {
-            color: var(--cyber-green);
-            font-weight: 700;
-            font-size: 0.8rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
         }
         
         /* ============================================
-           INFO ALERTS
+           INFO ALERTS (Right Column)
            ============================================ */
+        .info-col {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
         .info-card {
-            border-radius: 12px;
-            padding: 14px 16px;
-            margin-bottom: 14px;
+            border-radius: 10px;
+            padding: 10px 12px;
             display: flex;
             align-items: flex-start;
-            gap: 12px;
-            font-size: 0.85rem;
-            line-height: 1.5;
+            gap: 10px;
+            font-size: 0.75rem;
+            line-height: 1.4;
         }
         
         .info-card.warning {
             background: rgba(237, 137, 54, 0.12);
             border: 1px solid rgba(237, 137, 54, 0.3);
-            border-left: 4px solid var(--cyber-orange);
             color: #744210;
         }
         
         .info-card.tip {
             background: rgba(0, 181, 216, 0.1);
             border: 1px solid rgba(0, 181, 216, 0.25);
-            border-left: 4px solid var(--cyber-cyan);
             color: #086F83;
         }
         
-        .info-card i {
-            font-size: 1rem;
-            flex-shrink: 0;
-            margin-top: 2px;
-        }
-        
+        .info-card i { font-size: 0.9rem; margin-top: 2px; }
         .info-card.warning i { color: var(--cyber-orange); }
         .info-card.tip i { color: var(--cyber-cyan); }
         
         .info-card strong {
             display: block;
-            margin-bottom: 3px;
+            margin-bottom: 2px;
+            color: inherit;
         }
         
         /* ============================================
@@ -363,7 +336,7 @@ if (!$org) {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 12px;
-            margin-top: 24px;
+            margin-top: 16px;
         }
         
         .btn-primary-cyber,
@@ -371,89 +344,72 @@ if (!$org) {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
-            padding: 14px 22px;
-            border-radius: 12px;
-            font-size: 0.9rem;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 0.8rem;
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.8px;
+            letter-spacing: 0.5px;
             cursor: pointer;
-            transition: all 0.25s ease;
+            transition: all 0.2s ease;
             text-decoration: none;
             border: none;
-            white-space: nowrap;
         }
         
         .btn-primary-cyber {
-            background: linear-gradient(135deg, var(--cyber-purple) 0%, var(--cyber-purple-dark) 100%);
+            background: var(--cyber-purple);
             color: #fff;
-            box-shadow: 0 6px 20px rgba(107, 70, 193, 0.4);
+            box-shadow: 0 4px 12px rgba(107, 70, 193, 0.3);
         }
         
         .btn-primary-cyber:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(107, 70, 193, 0.55);
+            background: var(--cyber-purple-dark);
+            transform: translateY(-1px);
             color: #fff;
         }
         
         .btn-secondary-cyber {
-            background: rgba(255, 255, 255, 0.6);
+            background: rgba(255, 255, 255, 0.8);
             color: var(--cyber-gray);
-            border: 1.5px solid rgba(160, 174, 192, 0.4);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(160, 174, 192, 0.5);
         }
         
         .btn-secondary-cyber:hover {
-            background: rgba(255, 255, 255, 0.9);
+            background: #fff;
             color: var(--cyber-dark);
-            border-color: var(--cyber-gray-lighter);
-            transform: translateY(-2px);
         }
         
         /* ============================================
            SUPPORT FOOTER
            ============================================ */
         .support-footer {
-            margin-top: 24px;
-            padding-top: 20px;
+            margin-top: 16px;
+            padding-top: 12px;
             border-top: 1px solid rgba(226, 232, 240, 0.6);
             text-align: center;
-        }
-        
-        .support-footer p {
-            font-size: 0.78rem;
+            font-size: 0.7rem;
             color: var(--cyber-gray-lighter);
-            margin-bottom: 10px;
         }
         
         .support-links {
             display: flex;
             justify-content: center;
-            gap: 20px;
-            flex-wrap: wrap;
+            gap: 16px;
+            margin-top: 6px;
         }
         
         .support-item {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            font-size: 0.78rem;
+            gap: 4px;
             color: var(--cyber-gray);
             text-decoration: none;
             font-weight: 600;
-            transition: color 0.2s ease;
         }
         
-        .support-item:hover {
-            color: var(--cyber-purple);
-        }
-        
-        .support-item i {
-            color: var(--cyber-orange);
-            font-size: 0.85rem;
-        }
+        .support-item:hover { color: var(--cyber-purple); }
+        .support-item i { color: var(--cyber-orange); }
         
         /* ============================================
            CONFETTI
@@ -461,8 +417,8 @@ if (!$org) {
         .confetti {
             position: fixed;
             top: -10px;
-            width: 10px;
-            height: 10px;
+            width: 8px;
+            height: 8px;
             background: var(--cyber-purple);
             opacity: 0.8;
             z-index: 999;
@@ -471,59 +427,31 @@ if (!$org) {
         }
         
         @keyframes fall {
-            to {
-                transform: translateY(100vh) rotate(720deg);
-                opacity: 0;
-            }
+            to { transform: translateY(100vh) rotate(720deg); opacity: 0; }
         }
         
         /* ============================================
-           RESPONSIVE
+           RESPONSIVE (Mobile fix)
            ============================================ */
-        @media (max-width: 575.98px) {
-            body {
-                background-attachment: scroll;
-                padding: 12px;
+        @media (max-width: 767.98px) {
+            html, body {
+                overflow-y: auto; /* Allow scroll on mobile */
+                height: auto;
+                min-height: 100vh;
+            }
+            
+            .content-grid {
+                grid-template-columns: 1fr; /* Stack columns on mobile */
+                gap: 10px;
             }
             
             .success-card {
-                padding: 28px 22px;
-                border-radius: 20px;
-            }
-            
-            .success-icon {
-                width: 72px;
-                height: 72px;
-                font-size: 2rem;
-            }
-            
-            .success-header h1 {
-                font-size: 1.3rem;
-            }
-            
-            .success-header p {
-                font-size: 0.85rem;
-            }
-            
-            .cred-row {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 4px;
-            }
-            
-            .cred-label {
-                flex: none;
+                padding: 20px;
+                margin: 10px;
             }
             
             .btn-row {
                 grid-template-columns: 1fr;
-            }
-        }
-        
-        @media (prefers-reduced-motion: reduce) {
-            * {
-                animation: none !important;
-                transition: none !important;
             }
         }
     </style>
@@ -542,94 +470,85 @@ if (!$org) {
         <!-- Header -->
         <div class="success-header">
             <span class="org-name">
-                <i class="fas fa-building me-1"></i>
-                <?php echo htmlspecialchars($org['org_name']); ?>
+                <i class="fas fa-building me-1"></i> <?php echo htmlspecialchars($org['org_name']); ?>
             </span>
             <h1>Registration Successful!</h1>
-            <p>
-                Your organization has been created. Your 30-day free trial starts now — 
-                dive in and start managing your business.
-            </p>
+            <p>Your 30-day free trial starts now.</p>
         </div>
         
-        <!-- Credentials -->
-        <div class="credentials-box">
-            <div class="box-title">
-                <i class="fas fa-key"></i>
-                Your Login Credentials
-            </div>
+        <!-- 2-Column Layout to save height -->
+        <div class="content-grid">
             
-            <div class="cred-row">
-                <div class="cred-label">Org Code</div>
-                <div class="cred-value">
-                    <code><?php echo htmlspecialchars($org['org_code']); ?></code>
+            <!-- LEFT: Credentials -->
+            <div class="credentials-box">
+                <div class="box-title">
+                    <i class="fas fa-key"></i> Login Details
+                </div>
+                
+                <div class="cred-row">
+                    <div class="cred-label">Org Code</div>
+                    <div class="cred-value">
+                        <code><?php echo htmlspecialchars($org['org_code']); ?></code>
+                    </div>
+                </div>
+                
+                <div class="cred-row">
+                    <div class="cred-label">Username</div>
+                    <div class="cred-value">
+                        <code><?php echo htmlspecialchars($username); ?></code>
+                    </div>
+                </div>
+                
+                <div class="cred-row">
+                    <div class="cred-label">Trial Ends</div>
+                    <div class="cred-value">
+                        <span><?php echo date('M d, Y', strtotime($org['subscription_end'])); ?></span>
+                        <span class="badge-trial"><?php echo DEMO_DAYS; ?> Days</span>
+                    </div>
                 </div>
             </div>
             
-            <div class="cred-row">
-                <div class="cred-label">Username</div>
-                <div class="cred-value">
-                    <code><?php echo htmlspecialchars($username); ?></code>
+            <!-- RIGHT: Alerts -->
+            <div class="info-col">
+                <div class="info-card warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <div>
+                        <strong>Save Credentials</strong>
+                        Please save your login details. You'll need them to access your account.
+                    </div>
+                </div>
+                
+                <div class="info-card tip">
+                    <i class="fas fa-lightbulb"></i>
+                    <div>
+                        <strong>Tip</strong>
+                        You can change your password after logging in from the My Profile page.
+                    </div>
                 </div>
             </div>
             
-            <div class="cred-row">
-                <div class="cred-label">Password</div>
-                <div class="cred-value">
-                    <em style="color: var(--cyber-gray-lighter);">Your chosen password</em>
-                </div>
-            </div>
-            
-            <div class="cred-row">
-                <div class="cred-label">Trial Ends</div>
-                <div class="cred-value">
-                    <span><?php echo date('F d, Y', strtotime($org['subscription_end'])); ?></span>
-                    <span class="badge-trial"><?php echo DEMO_DAYS; ?> Days</span>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Info Alerts -->
-        <div class="info-card warning">
-            <i class="fas fa-exclamation-triangle"></i>
-            <div>
-                <strong>Save Your Credentials</strong>
-                Please save these login details. You'll need them to access your account.
-            </div>
-        </div>
-        
-        <div class="info-card tip">
-            <i class="fas fa-lightbulb"></i>
-            <div>
-                <strong>Tip</strong>
-                You can change your password after logging in from the <strong>My Profile</strong> page.
-            </div>
         </div>
         
         <!-- Action Buttons -->
         <div class="btn-row">
             <a href="index.php" class="btn-secondary-cyber">
-                <i class="fas fa-home"></i>
-                <span>Home</span>
+                <i class="fas fa-home"></i> <span>Home</span>
             </a>
             
             <a href="org-login.php" class="btn-primary-cyber">
-                <i class="fas fa-sign-in-alt"></i>
-                <span>Login Now</span>
+                <i class="fas fa-sign-in-alt"></i> <span>Login Now</span>
             </a>
         </div>
         
         <!-- Support Footer -->
         <div class="support-footer">
-            <p>Need help getting started?</p>
+            Need help? 
             <div class="support-links">
                 <a href="mailto:info@cyberplaza.tech" class="support-item">
-                    <i class="fas fa-envelope"></i>
-                    info@cyberplaza.tech
+                    <i class="fas fa-envelope"></i> info@cyberplaza.tech
                 </a>
                 <a href="tel:+256757741977" class="support-item">
-                    <i class="fas fa-phone"></i>
-                    +256 757 741 977
+                    <i class="fas fa-phone"></i> +256 757 741 977
                 </a>
             </div>
         </div>
@@ -637,21 +556,20 @@ if (!$org) {
     
     <script>
         // ============================================
-        // CELEBRATION CONFETTI
+        // CELEBRATION CONFETTI (Reduced count for compactness)
         // ============================================
         (function createConfetti() {
             const colors = ['#6B46C1', '#ED8936', '#48BB78', '#00B5D8', '#9F7AEA', '#FBD38D'];
-            const confettiCount = 40;
+            const confettiCount = 30; // Reduced from 40
             
             for (let i = 0; i < confettiCount; i++) {
                 setTimeout(() => {
                     const confetti = document.createElement('div');
                     confetti.className = 'confetti';
                     
-                    // Random properties
                     const left = Math.random() * 100;
-                    const duration = 3 + Math.random() * 3;
-                    const size = 6 + Math.random() * 8;
+                    const duration = 2.5 + Math.random() * 2;
+                    const size = 6 + Math.random() * 6;
                     const color = colors[Math.floor(Math.random() * colors.length)];
                     const shape = Math.random() > 0.5 ? '50%' : '2px';
                     
@@ -664,18 +582,15 @@ if (!$org) {
                     confetti.style.animationDelay = Math.random() * 0.5 + 's';
                     
                     document.body.appendChild(confetti);
-                    
-                    // Remove after animation
                     setTimeout(() => confetti.remove(), (duration + 1) * 1000);
-                }, i * 50);
+                }, i * 40);
             }
         })();
         
         // ============================================
-        // COPY TO CLIPBOARD (for credentials)
+        // COPY TO CLIPBOARD
         // ============================================
         document.querySelectorAll('.cred-value code').forEach(function(codeEl) {
-            codeEl.style.cursor = 'pointer';
             codeEl.title = 'Click to copy';
             
             codeEl.addEventListener('click', function() {
